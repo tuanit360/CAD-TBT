@@ -111,7 +111,7 @@ fn lwpoly_metrics(vertices: &[cadcraft_doc::geom::PolyVertex], closed: bool) -> 
 
 fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     let mut groups = BTreeMap::<String, Quantity>::new();
-    if let Some(drawing) = app.session.doc() {
+    if let Ok(drawing) = app.session.doc() {
         for entity in drawing.model.iter() {
             let group = groups.entry(entity.common.layer.clone()).or_default();
             group.count += 1;

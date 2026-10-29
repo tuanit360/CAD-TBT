@@ -895,7 +895,7 @@ fn run_sectiongeometry3d(s: &mut Session, p: &Value) -> Result<Value> {
         let candidate = if let Some(h)=explicit_plane {
             d.entity(h).and_then(|e| section_xdata(e).map(|v|(h,v)))
         } else {
-            d.model.iter().rev().find_map(|e|section_xdata(e).map(|v|(e.handle,v)))
+            d.model.iter().collect::<Vec<_>>().into_iter().rev().find_map(|e|section_xdata(e).map(|v|(e.handle,v)))
         }.ok_or_else(||bad("sectiongeometry3d","no TBT360 section plane found"))?;
         (candidate.0,(candidate.1).0,(candidate.1).1)
     };
@@ -1127,7 +1127,7 @@ fn run_dim3d_faceassoc(s:&mut Session,p:&Value)->Result<Value>{
 
 fn run_dim3d_facerefresh(s:&mut Session,_:&Value)->Result<Value>{
     let mut groups=std::collections::BTreeMap::<(cadcraft_doc::Handle,usize),(Vec3,Vec<cadcraft_doc::Handle>)>::new();
-    {let d=s.doc()?;for e in &d.model{if let Some((src,edge,off))=dim3d_face_meta(e){groups.entry((src,edge)).or_insert((off,Vec::new())).1.push(e.handle);}}}
+    {let d=s.doc()?;for e in d.model.iter(){if let Some((src,edge,off))=dim3d_face_meta(e){groups.entry((src,edge)).or_insert((off,Vec::new())).1.push(e.handle);}}}
     let mut refreshed=0usize; let mut missing=Vec::new();
     for ((src,edge),(off,arts)) in groups{let pts=face_edge_points(s,src,edge,"dim3d.facerefresh");for h in arts{let _=s.doc_mut()?.remove_entity(h);}match pts{Ok((a,b))=>{let out=run_dim3d(s,&json!({"a":[a.x,a.y,a.z],"b":[b.x,b.y,b.z],"offset":[off.x,off.y,off.z]}))?;for v in out.get("handles").and_then(Value::as_array).cloned().unwrap_or_default(){if let Some(x)=v.as_str().and_then(cadcraft_doc::Handle::parse_hex){tag_dim3d_face(s,x,src,edge,off)?;}}refreshed+=1;},Err(_)=>missing.push(json!({"source":src.hex(),"edge":edge}))}}
     if refreshed>0{s.touch();} Ok(json!({"refreshed":refreshed,"missingSources":missing,"association":"3DFACE edge index"}))
@@ -1135,7 +1135,7 @@ fn run_dim3d_facerefresh(s:&mut Session,_:&Value)->Result<Value>{
 
 fn run_dim3d_refresh(s:&mut Session,_p:&Value)->Result<Value>{
     let mut groups=std::collections::BTreeMap::<cadcraft_doc::Handle,Vec3>::new(); let mut artifacts=Vec::new();
-    {let d=s.doc()?; for e in &d.model {if let Some((src,off))=dim3d_assoc_meta(e){groups.entry(src).or_insert(off);artifacts.push(e.handle);}}}
+    {let d=s.doc()?; for e in d.model.iter() {if let Some((src,off))=dim3d_assoc_meta(e){groups.entry(src).or_insert(off);artifacts.push(e.handle);}}}
     if groups.is_empty(){return Ok(json!({"refreshed":0,"removed":0,"missingSources":[],"message":"No associative 3D dimensions found."}));}
     {let d=s.doc_mut()?;for h in &artifacts{d.remove_entity(*h);}}
     let mut refreshed=0usize;let mut missing=Vec::new();
@@ -1946,7 +1946,7 @@ fn run_pointcloud_zstats(s: &mut Session, p: &Value) -> Result<Value> {
     let visible_only=p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(false);
     let d=s.doc()?;
     let mut zs=Vec::new();
-    for e in &d.model {
+    for e in d.model.iter() {
         if !pointcloud_group(e).is_some_and(|n|n.eq_ignore_ascii_case(name)){continue;}
         if visible_only && !e.common.visible {continue;}
         if let EntityKind::Point(pt)=&e.kind {zs.push(pt.p.z);}
@@ -1969,7 +1969,7 @@ fn run_pointcloud_exportply(s: &mut Session, p: &Value) -> Result<Value> {
     let visible_only=p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(false);
     let max_points=p.get("maxPoints").and_then(Value::as_u64).unwrap_or(200_000).clamp(1,200_000) as usize;
     let d=s.doc()?; let mut pts=Vec::new();
-    for e in &d.model {
+    for e in d.model.iter() {
         if !pointcloud_group(e).is_some_and(|n|n.eq_ignore_ascii_case(name)){continue;}
         if visible_only && !e.common.visible {continue;}
         if let EntityKind::Point(pt)=&e.kind {pts.push(pt.p); if pts.len()>max_points{return Err(bad("pointcloud.exportply","point count exceeds maxPoints"));}}
@@ -2048,7 +2048,7 @@ fn run_pointcloud_density(s: &mut Session, p: &Value) -> Result<Value> {
     if name.is_empty(){return Err(bad("pointcloud.density","name is required"));}
     let visible_only=p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(false);
     let d=s.doc()?; let mut pts=Vec::new();
-    for e in &d.model {
+    for e in d.model.iter() {
         if !pointcloud_group(e).is_some_and(|n|n.eq_ignore_ascii_case(name)){continue;}
         if visible_only && !e.common.visible {continue;}
         if let EntityKind::Point(pt)=&e.kind {pts.push(pt.p);}
@@ -2067,7 +2067,7 @@ fn pointcloud_plane_solution(s: &Session, p: &Value, command: &str) -> Result<(S
     if name.is_empty(){return Err(bad(command,"name is required"));}
     let visible_only=p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(false);
     let d=s.doc()?; let mut pts=Vec::new();
-    for e in &d.model {
+    for e in d.model.iter() {
         if !pointcloud_group(e).is_some_and(|n|n.eq_ignore_ascii_case(name)){continue;}
         if visible_only && !e.common.visible {continue;}
         if let EntityKind::Point(pt)=&e.kind {pts.push(pt.p);}
@@ -2126,7 +2126,7 @@ fn run_pointcloud_copyvisible(s: &mut Session, p: &Value) -> Result<Value> {
     if visible.is_empty(){return Err(bad("pointcloud.copyvisible","source has no visible points"));}
     let mut handles=Vec::with_capacity(visible.len());
     for q in visible {
-        let h=s.add_entity(EntityKind::Point(Point{p:q}))?;
+        let h=s.add_entity(EntityKind::Point(Point{p:q, angle:0.0}))?;
         s.doc_mut()?.modify_entity(h,|e|e.common.xdata.extend([
             RawTag{code:1001,value:"TBT360_POINTCLOUD".into()},
             RawTag{code:1000,value:new_name.to_string()},
@@ -2162,7 +2162,7 @@ fn run_pointcloud_gridindex(s: &mut Session, p: &Value) -> Result<Value> {
     if !cell.is_finite()||cell<=0.0{return Err(bad("pointcloud.gridindex","cellSize must be positive and finite"));}
     let visible_only=p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(false);
     let d=s.doc()?; let mut grid=std::collections::HashMap::<(i64,i64,i64),usize>::new(); let mut count=0usize;
-    for e in &d.model {
+    for e in d.model.iter() {
         if !pointcloud_group(e).is_some_and(|n|n.eq_ignore_ascii_case(name)){continue;}
         if visible_only && !e.common.visible {continue;}
         let EntityKind::Point(pt)=&e.kind else {continue;};

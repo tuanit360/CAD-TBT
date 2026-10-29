@@ -27,7 +27,7 @@ mod lisp;
 mod mleader_content;
 mod mleader_edit;
 mod modify;
-mod modify2;
+pub(crate) mod modify2;
 mod mtext_opts;
 mod overkill;
 mod pline_opts;

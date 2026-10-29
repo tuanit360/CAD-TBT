@@ -240,7 +240,7 @@ pub(crate) fn menu(app: &mut CadApp, ctx: &egui::Context, xf: &Xf) {
                 app.canvas.array_grip_editor = None;
             }
             None => {
-                app.session.echo("Array grip value is invalid.".into());
+                app.session.echo("Array grip value is invalid.");
                 app.canvas.array_grip_editor = Some(ed);
             }
         }

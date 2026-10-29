@@ -11,7 +11,7 @@ use super::helpers::{arc, circle, line, lwpoly, polygon_from_edge, polygon_typed
 use super::machines::number;
 use super::pline_opts::{Outcome, PlineAsk};
 use super::{
-    CommandSpec, bad, bool_or, distinct_points, f64_or, f64_req, find_command, point_param, point_req, point_value, points_param, size_param,
+    CommandSpec, bad, bool_or, distinct_points, f64_or, f64_req, find_command, point_param, point_req, points_param, size_param,
     str_param,
 };
 
@@ -430,6 +430,13 @@ fn run_mesh(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 
+
+fn vec3_value(v: &Value) -> Option<Vec3> {
+    let a = v.as_array()?;
+    if a.len() != 3 { return None; }
+    let q = Vec3::new(a[0].as_f64()?, a[1].as_f64()?, a[2].as_f64()?);
+    q.is_finite().then_some(q)
+}
 
 fn vec3_param_or(p: &Value, name: &str, default: Vec3) -> Result<Vec3> {
     let Some(v) = p.get(name) else { return Ok(default) };
@@ -2095,7 +2102,7 @@ fn pointcloud_plane_solution(s: &Session, p: &Value, command: &str) -> Result<(S
     let reference=if normal.z.abs()<0.9 {Vec3::Z} else {Vec3::X};
     let u=reference.cross(normal).normalized(); let v=normal.cross(u).normalized();
     let mut min_u=f64::INFINITY; let mut max_u=f64::NEG_INFINITY; let mut min_v=f64::INFINITY; let mut max_v=f64::NEG_INFINITY;
-    let mut sum_sq=0.0; let mut max_dev=0.0;
+    let mut sum_sq=0.0_f64; let mut max_dev=0.0_f64;
     for q in &pts {let rel=*q-c; let pu=rel.dot(u); let pv=rel.dot(v); let dev=rel.dot(normal).abs(); min_u=min_u.min(pu);max_u=max_u.max(pu);min_v=min_v.min(pv);max_v=max_v.max(pv);sum_sq+=dev*dev;max_dev=max_dev.max(dev);}
     let rms=(sum_sq/(pts.len() as f64)).sqrt();
     Ok((name.to_string(),pts,c,normal,u,v,min_u,max_u,min_v,max_v,rms,max_dev))
@@ -2264,7 +2271,7 @@ fn run_pointcloud_octreebuild(s:&mut Session,p:&Value)->Result<Value>{
 }
 
 fn run_surfacepatch(s:&mut Session,p:&Value)->Result<Value>{
-    let arr=p.get("corners").and_then(Value::as_array).ok_or_else(||bad("surfacepatch","corners must contain four 3D points"))?;if arr.len()!=4{return Err(bad("surfacepatch","exactly four corners are required"));}let mut c=[Vec3::ZERO;4];for (i,v) in arr.iter().enumerate(){c[i]=point_value(v).ok_or_else(||bad("surfacepatch","invalid corner"))?;}
+    let arr=p.get("corners").and_then(Value::as_array).ok_or_else(||bad("surfacepatch","corners must contain four 3D points"))?;if arr.len()!=4{return Err(bad("surfacepatch","exactly four corners are required"));}let mut c=[Vec3::ZERO;4];for (i,v) in arr.iter().enumerate(){c[i]=vec3_value(v).ok_or_else(||bad("surfacepatch","invalid corner"))?;}
     let nu=p.get("u").and_then(Value::as_u64).unwrap_or(8).clamp(1,64) as usize;let nv=p.get("v").and_then(Value::as_u64).unwrap_or(8).clamp(1,64) as usize;let bilinear=|u:f64,v:f64|c[0]*((1.0-u)*(1.0-v))+c[1]*(u*(1.0-v))+c[2]*(u*v)+c[3]*((1.0-u)*v);let mut hs=Vec::new();for j in 0..nv{for i in 0..nu{let u0=i as f64/nu as f64;let u1=(i+1) as f64/nu as f64;let v0=j as f64/nv as f64;let v1=(j+1) as f64/nv as f64;let h=s.add_entity(EntityKind::Face3d(Face3d{corners:[bilinear(u0,v0),bilinear(u1,v0),bilinear(u1,v1),bilinear(u0,v1)],hidden_edges:0}))?;hs.push(h.hex());}}s.touch();Ok(json!({"u":nu,"v":nv,"faces":hs.len(),"handles":hs,"representation":"faceted bilinear patch; not NURBS"}))
 }
 
@@ -2273,7 +2280,7 @@ fn run_solidaudit3d(s:&mut Session,p:&Value)->Result<Value>{
 }
 
 fn run_hiddenline3d(s:&mut Session,p:&Value)->Result<Value>{
-    let hs=facet_handles(s,p,"hiddenline3d")?;let view=p.get("view").and_then(point_value).unwrap_or(Vec3::new(1.0,-1.0,1.0)).normalized();let origin=p.get("origin").and_then(point_value).unwrap_or(Vec3::ZERO);let scale=p.get("scale").and_then(Value::as_f64).unwrap_or(1.0).max(1e-9);let up=if view.z.abs()<0.95{Vec3::Z}else{Vec3::Y};let ux=up.cross(view).normalized();let uy=view.cross(ux).normalized();let tol=1e-8;let key=|q:Vec3|((q.x/tol).round() as i64,(q.y/tol).round() as i64,(q.z/tol).round() as i64);let mut edges=std::collections::BTreeMap::<((i64,i64,i64),(i64,i64,i64)),(Vec3,Vec3,Vec<f64>)>::new();{let d=s.doc()?;for h in &hs{let Some(e)=d.entity(*h) else{continue;};let EntityKind::Face3d(f)=&e.kind else{continue;};let tri=(f.corners[3]-f.corners[2]).len()<=tol;let pts=if tri{vec![f.corners[0],f.corners[1],f.corners[2]]}else{f.corners.to_vec()};let n=(pts[1]-pts[0]).cross(pts[2]-pts[0]).normalized();let side=n.dot(view);for i in 0..pts.len(){let a=pts[i];let b=pts[(i+1)%pts.len()];let ka=key(a);let kb=key(b);let k=if ka<=kb{(ka,kb)}else{(kb,ka)};edges.entry(k).and_modify(|e|e.2.push(side)).or_insert((a,b,vec![side]));}}}let mut created=Vec::new();for (_, (a,b,sides)) in edges{let draw=sides.len()==1 || (sides.iter().any(|v|*v>=0.0)&&sides.iter().any(|v|*v<0.0));if !draw{continue;}let pa=origin+Vec3::new((a.dot(ux))*scale,(a.dot(uy))*scale,0.0);let pb=origin+Vec3::new((b.dot(ux))*scale,(b.dot(uy))*scale,0.0);let h=s.add_entity(EntityKind::Line(Line{a:pa,b:pb}))?;created.push(h.hex());}if !created.is_empty(){s.touch();}Ok(json!({"sourceFaces":hs.len(),"createdLines":created.len(),"handles":created,"projection":"orthographic silhouette/boundary extraction","occlusion":"approximate; no z-buffer occlusion"}))
+    let hs=facet_handles(s,p,"hiddenline3d")?;let view=vec3_param_or(p,"view",Vec3::new(1.0,-1.0,1.0))?.normalized();let origin=vec3_param_or(p,"origin",Vec3::ZERO)?;let scale=p.get("scale").and_then(Value::as_f64).unwrap_or(1.0).max(1e-9);let up=if view.z.abs()<0.95{Vec3::Z}else{Vec3::Y};let ux=up.cross(view).normalized();let uy=view.cross(ux).normalized();let tol=1e-8;let key=|q:Vec3|((q.x/tol).round() as i64,(q.y/tol).round() as i64,(q.z/tol).round() as i64);let mut edges=std::collections::BTreeMap::<((i64,i64,i64),(i64,i64,i64)),(Vec3,Vec3,Vec<f64>)>::new();{let d=s.doc()?;for h in &hs{let Some(e)=d.entity(*h) else{continue;};let EntityKind::Face3d(f)=&e.kind else{continue;};let tri=(f.corners[3]-f.corners[2]).len()<=tol;let pts=if tri{vec![f.corners[0],f.corners[1],f.corners[2]]}else{f.corners.to_vec()};let n=(pts[1]-pts[0]).cross(pts[2]-pts[0]).normalized();let side=n.dot(view);for i in 0..pts.len(){let a=pts[i];let b=pts[(i+1)%pts.len()];let ka=key(a);let kb=key(b);let k=if ka<=kb{(ka,kb)}else{(kb,ka)};edges.entry(k).and_modify(|e|e.2.push(side)).or_insert((a,b,vec![side]));}}}let mut created=Vec::new();for (_, (a,b,sides)) in edges{let draw=sides.len()==1 || (sides.iter().any(|v|*v>=0.0)&&sides.iter().any(|v|*v<0.0));if !draw{continue;}let pa=origin+Vec3::new((a.dot(ux))*scale,(a.dot(uy))*scale,0.0);let pb=origin+Vec3::new((b.dot(ux))*scale,(b.dot(uy))*scale,0.0);let h=s.add_entity(EntityKind::Line(Line{a:pa,b:pb}))?;created.push(h.hex());}if !created.is_empty(){s.touch();}Ok(json!({"sourceFaces":hs.len(),"createdLines":created.len(),"handles":created,"projection":"orthographic silhouette/boundary extraction","occlusion":"approximate; no z-buffer occlusion"}))
 }
 
 fn run_pbrmaterial(s:&mut Session,p:&Value)->Result<Value>{

@@ -181,6 +181,12 @@ impl Vec3 {
     pub fn is_finite(self) -> bool {
         self.x.is_finite() && self.y.is_finite() && self.z.is_finite()
     }
+    pub fn min(self, o: Vec3) -> Vec3 {
+        Vec3::new(self.x.min(o.x), self.y.min(o.y), self.z.min(o.z))
+    }
+    pub fn max(self, o: Vec3) -> Vec3 {
+        Vec3::new(self.x.max(o.x), self.y.max(o.y), self.z.max(o.z))
+    }
 }
 
 impl Add for Vec3 {

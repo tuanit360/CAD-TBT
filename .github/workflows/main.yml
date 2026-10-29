@@ -39,20 +39,26 @@ jobs:
         run: cargo check --workspace --locked
 
       - name: Build CAD R65
-        run: cargo build --release --locked
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli
+
+      - name: Verify native Windows binaries
+        shell: pwsh
+        run: |
+          foreach ($name in @("cadcraft.exe", "cadcraft-cli.exe")) {
+            $path = "target/release/$name"
+            if (!(Test-Path $path)) { throw "Missing compiled R65 binary: $path" }
+            $file = Get-Item $path
+            if ($file.Length -lt 100000) { throw "Unexpectedly small compiled binary: $path" }
+          }
+          & "./target/release/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "R65 CLI smoke test failed" }
 
       - name: Package Portable
         shell: pwsh
         run: |
           $output = "../TBT360_CAD_Portable"
           New-Item -ItemType Directory -Force -Path $output
-          $exe = Get-ChildItem -Path "target/release" -Filter "*.exe" -File
-
-          if (-not $exe) {
-            throw "Khong tim thay EXE R65 sau build"
-          }
-
-          Copy-Item $exe.FullName -Destination $output
+          Copy-Item "target/release/cadcraft.exe", "target/release/cadcraft-cli.exe" -Destination $output
           Compress-Archive -Path "$output/*" -DestinationPath "../TBT360_CAD_Portable.zip" -Force
 
       - name: Upload Portable
@@ -60,4 +66,29 @@ jobs:
         with:
           name: TBT360_CAD_R65_Windows_Portable
           path: TBT360_CAD_Portable.zip
+          if-no-files-found: error
+
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found after installation" }
+
+      - name: Build Windows Setup EXE
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          & $iscc "/Qp" "../installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
+          if (!(Test-Path "../dist/TBT360_CAD_R65_Setup.exe")) { throw "Setup EXE not created" }
+
+      - name: Upload Windows Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: TBT360_CAD_R65_Windows_Setup
+          path: dist/TBT360_CAD_R65_Setup.exe
           if-no-files-found: error

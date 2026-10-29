@@ -11,7 +11,7 @@ use super::helpers::{arc, circle, line, lwpoly, polygon_from_edge, polygon_typed
 use super::machines::number;
 use super::pline_opts::{Outcome, PlineAsk};
 use super::{
-    CommandSpec, bad, bool_or, distinct_points, f64_or, f64_req, find_command, point_param, point_req, points_param, size_param,
+    CommandSpec, bad, bool_or, distinct_points, f64_or, f64_req, find_command, point_param, point_req, point_value, points_param, size_param,
     str_param,
 };
 

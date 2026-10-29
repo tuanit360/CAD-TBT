@@ -146,7 +146,7 @@ mod blend;
 mod fillet;
 mod lengthen;
 mod ncopy;
-pub(crate) mod patharray;
+pub(crate) pub(crate) mod patharray;
 mod pedit;
 mod selop;
 mod textedit;

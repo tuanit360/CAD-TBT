@@ -300,7 +300,7 @@ impl Parser {
 
     fn on_text(&mut self, e: &quick_xml::events::BytesText<'_>) -> Result<()> {
         if let Some(css) = &mut self.style_buf {
-            css.push_str(&e.unescape().map_err(parse_err)?);
+            css.push_str(&e.xml10_content());
         }
         Ok(())
     }

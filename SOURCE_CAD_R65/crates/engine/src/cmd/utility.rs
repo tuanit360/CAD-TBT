@@ -6,7 +6,7 @@ use cadcraft_doc::{EntityKind, Handle, RawTag, Text};
 use cadcraft_geom::{Segment, Vec2, Vec3};
 use serde_json::{Value, json};
 
-use super::{CommandSpec, always, bad, bool_or, point_param, points_param, str_param, targets};
+use super::{CommandSpec, always, bad, bool_or, f64_or, point_param, points_param, str_param, targets};
 
 use crate::{Accept, Input, Interactive, Prompt, Result, Session, Step};
 

@@ -194,7 +194,7 @@ mod tests {
         let h = r["handle"].as_str().expect("image handle").to_string();
         assert_eq!(r["path"], "survey/site.png");
         assert_eq!(r["pixels"], json!([2000.0, 1000.0]));
-        let c = s.execute("imageclip", &json!({"handle": h, "points": [[0.0, 0.0], [2000.0, 0.0], [2000.0, 1000.0], [0.0, 1000.0]})).unwrap();
+        let c = s.execute("imageclip", &json!({"handle": h, "points": [[0.0, 0.0], [2000.0, 0.0], [2000.0, 1000.0], [0.0, 1000.0]]})).unwrap();
         assert_eq!(c["clipping"], true);
         let d = s.execute("imageclip", &json!({"handle": c["handle"], "delete": true})).unwrap();
         assert_eq!(d["clipping"], false);

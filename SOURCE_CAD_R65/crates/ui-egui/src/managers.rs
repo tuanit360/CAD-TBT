@@ -227,7 +227,7 @@ fn control_center_3d(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> 
     let yaw = d.header.f64("VIEWYAW", 0.0);
     let pitch = d.header.f64("VIEWPITCH", 0.0);
     let projection = d.header.str("VIEWPROJ", "orthographic").to_string();
-    let entities = d.entities.len();
+    let entities = d.model.iter().count();
     let selected = app.session.selection().len();
     let mut action = None;
     egui::Window::new("3D Control Center")
@@ -640,6 +640,7 @@ fn point_cloud_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) ->
     let mut classify_breaks=ctx.data_mut(|d| d.get_temp::<String>(id("classify_breaks"))).unwrap_or_else(|| "0,3,10".into());
     let mut icp_target=ctx.data_mut(|d| d.get_temp::<String>(id("icp_target"))).unwrap_or_default();
     let mut icp_apply=ctx.data_mut(|d| d.get_temp::<bool>(id("icp_apply"))).unwrap_or(false);
+    let mut zstats_bins=ctx.data_mut(|d| d.get_temp::<u64>(id("zstats_bins"))).unwrap_or(10).clamp(2,100);
     egui::Window::new("Point Cloud (XYZ)").open(open).default_width(540.0).resizable(true).show(ctx,|ui|{
         ui.label("Paste XYZ points: one point per line, separated by comma, semicolon, tab, or spaces.");
         ui.horizontal(|ui|{ ui.label("Name"); ui.text_edit_singleline(&mut name); });
@@ -744,14 +745,14 @@ fn point_cloud_dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) ->
                 ui.label("normal"); for v in &mut clip_normal { ui.add(egui::DragValue::new(v).speed(0.1)); }
                 ui.checkbox(&mut clip_positive,"Keep + side");
                 let clip_ok=clip_normal.iter().map(|v|v*v).sum::<f64>()>1e-12;
-                if ui.add_enabled(clip_ok,egui::Button::new("Clip by plane")).clicked(){ action=Some(("pointcloud.clipplane",json!({"name":group,"origin":clip_origin,"normal":clip_normal,"keepPositive":clip_positive}))); }
+                if ui.add_enabled(clip_ok,egui::Button::new("Clip by plane")).clicked(){ action=Some(("pointcloud.clipplane",json!({"name":name.trim(),"origin":clip_origin,"normal":clip_normal,"keepPositive":clip_positive}))); }
                 ui.label("Slice ±"); ui.add(egui::DragValue::new(&mut slice_half).speed(0.1).range(0.000001..=1.0e12));
                 ui.checkbox(&mut slice_invert,"Outside band");
-                if ui.add_enabled(clip_ok,egui::Button::new("Slice band")).clicked(){ action=Some(("pointcloud.sliceplane",json!({"name":group,"origin":clip_origin,"normal":clip_normal,"halfThickness":slice_half,"invert":slice_invert}))); }
+                if ui.add_enabled(clip_ok,egui::Button::new("Slice band")).clicked(){ action=Some(("pointcloud.sliceplane",json!({"name":name.trim(),"origin":clip_origin,"normal":clip_normal,"halfThickness":slice_half,"invert":slice_invert}))); }
             });
             ui.horizontal_wrapped(|ui|{
                 ui.label("Z stats bins"); ui.add(egui::DragValue::new(&mut zstats_bins).range(2..=100));
-                if ui.button("Elevation statistics").clicked(){action=Some(("pointcloud.zstats",json!({"name":group,"bins":zstats_bins})));}
+                if ui.button("Elevation statistics").clicked(){action=Some(("pointcloud.zstats",json!({"name":name.trim(),"bins":zstats_bins})));}
             });
             ui.horizontal_wrapped(|ui|{
                 ui.label("Grid cell"); ui.add(egui::DragValue::new(&mut grid_cell).speed(0.1).range(0.000001..=1.0e12));

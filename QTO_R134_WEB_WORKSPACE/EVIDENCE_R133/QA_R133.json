@@ -1,0 +1,60 @@
+{
+  "browser": "Chromium Playwright",
+  "native_rust_tested": false,
+  "tests": {
+    "real_canvas_button": true,
+    "real_mouse_translation": true,
+    "measurement_value_invariant": true,
+    "approval_revoked_on_edit": true,
+    "audit": true,
+    "undo_redo": true,
+    "save_reopen_json": true
+  },
+  "before": {
+    "id": "P-1793247060036-0",
+    "source": "PDF/Image",
+    "sourceFile": "ban_ve_mau.pdf",
+    "page": 1,
+    "classification": "KIEN_TRUC_SAN",
+    "description": "Diện tích sàn",
+    "kind": "length",
+    "points": [
+      [
+        98.54623655913979,
+        239.5220700152207
+      ],
+      [
+        298.71827956989245,
+        239.5220700152207
+      ]
+    ],
+    "scale": 0.049957026214009465,
+    "quantity": 10,
+    "unit": "m",
+    "status": "da_xac_nhan"
+  },
+  "after": {
+    "id": "P-1793247060036-0",
+    "source": "PDF/Image",
+    "sourceFile": "ban_ve_mau.pdf",
+    "page": 1,
+    "classification": "KIEN_TRUC_SAN",
+    "description": "Diện tích sàn",
+    "kind": "length",
+    "points": [
+      [
+        149.35913978494622,
+        308.83713850837137
+      ],
+      [
+        349.5311827956989,
+        308.83713850837137
+      ]
+    ],
+    "scale": 0.049957026214009465,
+    "quantity": 10,
+    "unit": "m",
+    "status": "chua_kiem_tra"
+  },
+  "errors": []
+}

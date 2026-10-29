@@ -1,0 +1,14 @@
+{
+  "test": "actual Chromium pointer drag on TBT360 workspace canvas",
+  "calibrated_meters_per_pixel": 0.05,
+  "before_length_m": 10,
+  "after_length_m": 15,
+  "approval_revoked_after_edit": true,
+  "undo_redo": true,
+  "save_reopen": true,
+  "screenshots": [
+    "01_TRUOC_SUA_DIEM.png",
+    "02_SAU_KEO_DIEM_CAN_DUYET_LAI.png"
+  ],
+  "native_rust_exe_verified": false
+}

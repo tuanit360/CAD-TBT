@@ -1,0 +1,10 @@
+{
+  "test": "real pointer grip polygon edit in TBT360 browser workspace",
+  "area_before_m2": 80.004216295984,
+  "area_after_m2": 92.57471519865075,
+  "review_revoked": true,
+  "undo_redo": true,
+  "save_reopen": true,
+  "invalid_polygon_rollback": true,
+  "native_rust_verified": false
+}

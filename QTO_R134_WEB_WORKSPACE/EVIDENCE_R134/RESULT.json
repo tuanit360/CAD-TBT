@@ -1,0 +1,12 @@
+{
+  "browser": "Playwright Chromium",
+  "outcome": "PASS",
+  "before_length_m": 10,
+  "after_length_m": 20,
+  "approval_revoked": true,
+  "undo_redo": true,
+  "save_reopen": true,
+  "audit": true,
+  "native_exe_tested": false,
+  "errors": []
+}

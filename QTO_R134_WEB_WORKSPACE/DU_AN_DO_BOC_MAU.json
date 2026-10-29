@@ -1,0 +1,75 @@
+{
+  "schema": "tbt360-qto-v1",
+  "pdf_render_dpi": 122.4,
+  "pdfName": "ban_ve_mau.pdf",
+  "imageData": "",
+  "measurements": [
+    {
+      "id": "P-001",
+      "source": "PDF/Image",
+      "sourceFile": "ban_ve_mau.pdf",
+      "classification": "KET_CAU",
+      "description": "Đo chiều dài",
+      "kind": "length",
+      "points": [
+        [
+          110.5,
+          153.0
+        ],
+        [
+          280.5,
+          153.0
+        ]
+      ],
+      "scale": 0.058823529411764705,
+      "quantity": 10,
+      "unit": "m",
+      "status": "chua_kiem_tra"
+    },
+    {
+      "id": "P-002",
+      "source": "PDF/Image",
+      "sourceFile": "ban_ve_mau.pdf",
+      "classification": "KIEN_TRUC",
+      "description": "Diện tích mẫu",
+      "kind": "area",
+      "points": [
+        [
+          340,
+          170
+        ],
+        [
+          510,
+          170
+        ],
+        [
+          510,
+          306
+        ],
+        [
+          340,
+          306
+        ]
+      ],
+      "scale": 0.058823529411764705,
+      "quantity": 8,
+      "unit": "m²",
+      "status": "chua_kiem_tra"
+    }
+  ],
+  "modelRows": [],
+  "calibration": {
+    "points": [
+      [
+        110.5,
+        153.0
+      ],
+      [
+        280.5,
+        153.0
+      ]
+    ],
+    "metresPerPixel": 0.058823529411764705,
+    "realMetres": 10
+  }
+}

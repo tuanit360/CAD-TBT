@@ -1,0 +1,8 @@
+{
+  "tested": "click segment to select; delete; audit; undo; redo; click area interior; save/reopen",
+  "measurements_before": 2,
+  "measurements_after": 1,
+  "browser": "Chromium via Playwright",
+  "status": "PASS",
+  "native_exe_verified": false
+}

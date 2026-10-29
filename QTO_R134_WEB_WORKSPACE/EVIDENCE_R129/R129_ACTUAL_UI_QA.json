@@ -1,0 +1,38 @@
+{
+  "browser": "Chromium / Playwright actual pointer clicks",
+  "source": "R128 workspace, R129 visual acceptance",
+  "tests": {
+    "real_calibration": true,
+    "mouse_length_10m": true,
+    "mouse_area_75m2": true,
+    "mouse_count_1": true,
+    "undo_redo": true,
+    "review_approved": true,
+    "download_save_reopen": true
+  },
+  "measures": [
+    {
+      "kind": "length",
+      "quantity": 10,
+      "unit": "m",
+      "status": "chua_kiem_tra"
+    },
+    {
+      "kind": "area",
+      "quantity": 74.94432442206842,
+      "unit": "m²",
+      "status": "chua_kiem_tra"
+    },
+    {
+      "kind": "count",
+      "quantity": 1,
+      "unit": "cái",
+      "status": "chua_kiem_tra"
+    }
+  ],
+  "screenshot_files": [
+    "01_DO_TRUC_TIEP_TREN_WORKSPACE.png",
+    "02_DUYET_DAU_DO_VA_BANG_QTO.png"
+  ],
+  "native_rust_exe_tested": false
+}

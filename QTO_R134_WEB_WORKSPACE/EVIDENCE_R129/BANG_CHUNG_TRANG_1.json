@@ -1,0 +1,84 @@
+{
+  "schema": "tbt360-takeoff-evidence-v1",
+  "page": 1,
+  "source": "ban_ve_mau.pdf",
+  "calibration": {
+    "points": [
+      [
+        172.53012048192772,
+        171.54003407155025
+      ],
+      [
+        517.5903614457832,
+        171.54003407155025
+      ]
+    ],
+    "metresPerPixel": 0.0289804469273743,
+    "realMetres": 10
+  },
+  "measurements": [
+    {
+      "id": "P-1793246379045-0",
+      "kind": "length",
+      "points": [
+        [
+          172.53012048192772,
+          343.9420783645656
+        ],
+        [
+          517.5903614457832,
+          343.9420783645656
+        ]
+      ],
+      "quantity": 10,
+      "unit": "m",
+      "status": "da_xac_nhan",
+      "classification": "KIEN_TRUC_SAN",
+      "canonicalId": null
+    },
+    {
+      "id": "P-1793246379279-1",
+      "kind": "area",
+      "points": [
+        [
+          690.1204819277109,
+          378.4224872231687
+        ],
+        [
+          1035.1807228915663,
+          378.4224872231687
+        ],
+        [
+          1035.1807228915663,
+          637.0255536626917
+        ],
+        [
+          690.1204819277109,
+          637.0255536626917
+        ]
+      ],
+      "quantity": 74.94432442206842,
+      "unit": "m²",
+      "status": "chua_kiem_tra",
+      "classification": "KIEN_TRUC_SAN",
+      "canonicalId": null
+    },
+    {
+      "id": "P-1793246379413-2",
+      "kind": "count",
+      "points": [
+        [
+          1207.710843373494,
+          688.7461669505963
+        ]
+      ],
+      "quantity": 1,
+      "unit": "cái",
+      "status": "chua_kiem_tra",
+      "classification": "KIEN_TRUC_SAN",
+      "canonicalId": null
+    }
+  ],
+  "exportTime": "2026-10-29T03:59:39.797Z",
+  "note": "Screenshot is from current canvas state. Not native TBT360 EXE evidence."
+}

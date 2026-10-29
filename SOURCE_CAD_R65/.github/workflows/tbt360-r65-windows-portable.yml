@@ -1,0 +1,39 @@
+name: TBT360 R65 native QTO Windows portable
+on:
+  workflow_dispatch:
+  push:
+    branches: [tbt360-r65-native-qto]
+permissions:
+  contents: read
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust 1.95 toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95.0'
+      - name: QTO native unit tests
+        run: cargo test -p cadcraft --bin cadcraft takeoff::tests --locked
+      - name: Native CAD regression
+        run: cargo test -p cadcraft-ui-egui grip_pick_ --locked
+      - name: Build native CAD with QTO
+        run: cargo build --release -p cadcraft --locked
+      - name: Assemble verified portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path 'target/release/cadcraft.exe')) { throw 'New CAD binary missing' }
+          New-Item -ItemType Directory -Force 'TBT360_R65_PORTABLE_WINDOWS_X64' | Out-Null
+          Copy-Item 'target/release/cadcraft.exe' 'TBT360_R65_PORTABLE_WINDOWS_X64/TBT360_CAD_R65.exe'
+          Copy-Item 'CHAY_CAD_R65_PORTABLE.bat' 'TBT360_R65_PORTABLE_WINDOWS_X64/'
+          Copy-Item 'README_R65_RELEASE_GATE.md' 'TBT360_R65_PORTABLE_WINDOWS_X64/'
+          Get-ChildItem 'TBT360_R65_PORTABLE_WINDOWS_X64' -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $($_.Path | Split-Path -Leaf)" } | Set-Content 'TBT360_R65_PORTABLE_WINDOWS_X64/SHA256SUMS.txt'
+          Compress-Archive 'TBT360_R65_PORTABLE_WINDOWS_X64/*' 'TBT360_R65_PORTABLE_WINDOWS_X64.zip' -CompressionLevel Optimal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TBT360_R65_PORTABLE_WINDOWS_X64
+          path: TBT360_R65_PORTABLE_WINDOWS_X64.zip
+          if-no-files-found: error

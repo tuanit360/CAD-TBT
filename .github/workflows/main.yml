@@ -1,0 +1,55 @@
+name: TBT360 CAD R65 Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - '.github/workflows/main.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Check Rust version
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Build CAD R65
+        run: cargo build --release --locked
+
+      - name: Package Portable
+        shell: pwsh
+        run: |
+          $output = "../TBT360_CAD_Portable"
+          New-Item -ItemType Directory -Force -Path $output
+          $exe = Get-ChildItem -Path "target/release" -Filter "*.exe" -File
+
+          if (-not $exe) {
+            throw "Khong tim thay EXE R65 sau build"
+          }
+
+          Copy-Item $exe.FullName -Destination $output
+          Compress-Archive -Path "$output/*" -DestinationPath "../TBT360_CAD_Portable.zip" -Force
+
+      - name: Upload Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: TBT360_CAD_R65_Windows_Portable
+          path: TBT360_CAD_Portable.zip
+          if-no-files-found: error

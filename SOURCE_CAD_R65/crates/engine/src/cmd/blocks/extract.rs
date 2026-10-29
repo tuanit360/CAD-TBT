@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn dataextraction_aliases_extract_block_references() {
         let mut s = Session::new();
-        let line = s.execute("line", &json!({"points": [[0, 0], [1, 0]}])).unwrap()["handle"].as_str().unwrap().to_string();
+        let line = s.execute("line", &json!({"points": [[0, 0], [1, 0]]})).unwrap()["handle"].as_str().unwrap().to_string();
         s.execute("block", &json!({"name": "AUDIT_BLOCK", "base": [0, 0], "handles": [line], "keep": "delete"})).unwrap();
         s.execute("insert", &json!({"name": "AUDIT_BLOCK", "at": [2, 3]})).unwrap();
         let r = s.execute("dx", &json!({"combine": false})).unwrap();

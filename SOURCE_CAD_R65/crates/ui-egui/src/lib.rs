@@ -130,7 +130,7 @@ pub enum SaveFormat {
     /// CADCraft's native format, and the default.
     #[default]
     Dwg,
-    Dwg,
+    Dxf,
 }
 
 impl SaveFormat {

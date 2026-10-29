@@ -21,7 +21,7 @@ fn shade_face(d: &Drawing, rgb: Rgb, corners: &[Vec3; 4]) -> Rgb {
     Rgb(c(rgb.0),c(rgb.1),c(rgb.2))
 }
 
-fn visual_style(d: &Drawing) -> &str { d.header.str("VISUALSTYLE", "2DWireframe") }
+fn visual_style(d: &Drawing) -> String { d.header.str("VISUALSTYLE", "2DWireframe") }
 
 fn section_marker(e: &Entity) -> bool {
     e.common.xdata.iter().any(|t| t.code == 1001 && t.value == "TBT360_SECTION")
@@ -410,10 +410,10 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
             if clipped.len() < 3 { return; }
             let q: Vec<Vec2> = clipped.iter().copied().map(|p| project3(ctx.d, p)).collect();
             let style=visual_style(ctx.d);
-            let filled=matches!(style, "Conceptual"|"Realistic"|"Shaded"|"ShadedWithEdges"|"X-ray");
-            let draw_edges=!matches!(style, "Shaded");
+            let filled=matches!(style.as_str(), "Conceptual"|"Realistic"|"Shaded"|"ShadedWithEdges"|"X-ray");
+            let draw_edges=!matches!(style.as_str(), "Shaded");
             if b.opts.fill && filled && ctx.d.header.i64("FILLMODE", 1) != 0 {
-                let material=cadcraft_color::Rgb::parse_hex(ctx.d.header.str("MATERIALCOLOR", "")).unwrap_or(rgb.rgb);
+                let material=cadcraft_color::Rgb::parse_hex(&ctx.d.header.str("MATERIALCOLOR", "")).unwrap_or(rgb.rgb);
                 let mut face_ink=rgb;
                 face_ink.rgb=shade_face(ctx.d, material, &f.corners);
                 let saved=b.transparency;

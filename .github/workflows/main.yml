@@ -30,6 +30,14 @@ jobs:
           rustc --version
           cargo --version
 
+      - name: Cache Rust dependencies and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+
+      - name: Check CAD workspace
+        run: cargo check --workspace --locked
+
       - name: Build CAD R65
         run: cargo build --release --locked
 

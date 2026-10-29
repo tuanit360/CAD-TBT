@@ -76,10 +76,10 @@ impl DynamicBlock {
             }
             if let ParameterKind::Visibility { states, controlled, .. } = &p.kind {
                 if states.is_empty() {
-                    issues.push(format!("visibility parameter `{}` has no states", p.label().unwrap_or(&p.element)));
+                    issues.push(format!("visibility parameter `{}` has no states", p.kind.label().unwrap_or(&p.element)));
                 }
                 if controlled.is_empty() {
-                    issues.push(format!("visibility parameter `{}` controls no objects", p.label().unwrap_or(&p.element)));
+                    issues.push(format!("visibility parameter `{}` controls no objects", p.kind.label().unwrap_or(&p.element)));
                 }
             }
         }

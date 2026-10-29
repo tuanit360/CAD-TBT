@@ -40,7 +40,7 @@ pub(super) fn run_textedit(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("textedit", "text is too long"));
     }
     for h in &hs { set_text(s, *h, text)?; }
-    Ok(json!({ "handle": hs[0].hex(), "handles": hs.iter().map(Handle::hex).collect::<Vec<_>>(), "changed": hs.len() }))
+    Ok(json!({ "handle": hs[0].hex(), "handles": hs.iter().map(|h| h.hex()).collect::<Vec<_>>(), "changed": hs.len() }))
 }
 
 #[derive(Default)]

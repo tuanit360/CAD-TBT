@@ -380,20 +380,6 @@ fn run_preview(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.doc()?;
     let mut page = match space.layout() {
         Some(n) => d.layout(n).map(|l| l.page.clone()).unwrap_or_default(),
-        // SELECTALLLAYOUTS stores the tab selection for the next publish.  Keep an
-        // explicit `layouts` list authoritative, but honour that selection when the
-        // caller omits it (matching the command-line Publish workflow).
-        None if !s.selected_layouts.is_empty() => s
-            .selected_layouts
-            .iter()
-            .map(|n| {
-                if n.eq_ignore_ascii_case("model") {
-                    Ok("Model".to_string())
-                } else {
-                    d.layout(n).map(|l| l.name.clone()).ok_or_else(|| bad("publish", format!("no layout `{n}`")))
-                }
-            })
-            .collect::<Result<_>>()?,
         None => {
             // Model space plots on A4 (metric) or ANSI A, like the PDF plotter.
             let mut page = PageSetup::default();

@@ -228,7 +228,7 @@ fn locale_and_saved_preference_resolution() {
         assert_eq!(b.ui.interface_language, preference);
     }
     assert!(serde_json::from_str::<Preference>("\"unsupported\"").is_err());
-    assert_eq!(serde_json::from_value::<crate::UiState>(json!({})).unwrap().interface_language, Preference::Vietnamese);
+    assert_eq!(serde_json::from_value::<crate::UiState>(json!({})).unwrap().interface_language, Preference::Auto);
 }
 
 #[test]

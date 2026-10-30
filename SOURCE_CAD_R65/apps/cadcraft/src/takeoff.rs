@@ -187,6 +187,7 @@ impl State {
     fn relink_missing_source(&mut self, app:&CadApp, id:u64) -> Result<bool,String> {
         let index=self.records.iter().position(|r|r.id==id).ok_or_else(||"Không tìm thấy record QTO".to_string())?;
         let record=self.records[index].clone();
+        if record.source_path.is_some(){return Ok(false);}
         let expected=record.source_geometry_signature.clone().ok_or_else(||"Record chưa có geometry signature để relink".to_string())?;
         let doc=app.session.doc().map_err(|e|e.to_string())?;
         let mut candidates=Vec::new();
@@ -221,7 +222,9 @@ impl State {
     fn relink_all_missing_sources(&mut self, app:&CadApp) -> usize {
         let ids=self.records.iter().filter_map(|r|{
             let h=r.source_handle.as_deref().and_then(cadcraft_doc::Handle::parse_hex)?;
-            let missing=app.session.doc().ok().is_none_or(|d|d.model.get(h).is_none());
+            let missing=app.session.doc().ok().is_none_or(|d|{
+                if let Some(path)=r.source_path.as_ref(){resolve_source_path(d,path).is_none()}else{d.model.get(h).is_none()}
+            });
             missing.then_some(r.id)
         }).collect::<Vec<_>>();
         ids.into_iter().filter(|id|self.relink_missing_source(app,*id).ok()==Some(true)).count()
@@ -232,7 +235,15 @@ impl State {
         let handle_hex=self.records[index].source_handle.clone().ok_or_else(||"Record không có source_handle".to_string())?;
         let handle=cadcraft_doc::Handle::parse_hex(&handle_hex).ok_or_else(||"source_handle không hợp lệ".to_string())?;
         let kind=self.records[index].kind;
-        let current=if kind==MeasureKind::Count {
+        let current=if let Some(path)=self.records[index].source_path.as_ref() {
+            if kind==MeasureKind::Count {
+                let doc=app.session.doc().map_err(|e|e.to_string())?;
+                let (entity,root)=resolve_source_path(doc,path).ok_or_else(||"Nested source path không còn tồn tại".to_string())?;
+                PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:entity.common.layer,source_handle:root}
+            } else {
+                measurements_for_path(app,path).into_iter().find(|m|m.kind==kind).ok_or_else(||"Nested source không còn hỗ trợ loại phép đo này".to_string())?
+            }
+        } else if kind==MeasureKind::Count {
             count_measurement_for_handle(app,handle).ok_or_else(||"Entity nguồn không còn tồn tại".to_string())?
         } else {
             measurements_for_handle(app,handle).into_iter().find(|m|m.kind==kind).ok_or_else(||"Entity nguồn không còn hỗ trợ loại phép đo này".to_string())?
@@ -343,6 +354,54 @@ fn parse_source_path(value:&serde_json::Value)->Result<SourcePath,String> {
         }
     }
     Ok(SourcePath{root_handle,steps})
+}
+
+fn resolve_source_path(d:&cadcraft_doc::Drawing,path:&SourcePath)->Option<(cadcraft_doc::Entity,cadcraft_doc::Handle)> {
+    let root=cadcraft_doc::Handle::parse_hex(&path.root_handle)?;
+    let mut current=(**d.model.get(root)?).clone();
+    let mut parent=cadcraft_geom::Mat3::IDENTITY;
+
+    for step in &path.steps {
+        match step {
+            SourcePathStep::BlockMember{block,member_handle}=>{
+                let EntityKind::Insert(ins)=&current.kind else { return None };
+                if !ins.block.eq_ignore_ascii_case(block) { return None; }
+                let definition=d.block(&ins.block)?;
+                let member=cadcraft_doc::Handle::parse_hex(member_handle)?;
+                let next=(**definition.entities.get(member)?).clone();
+                parent=parent.then_before(ins.transform(definition.base.xy()));
+                current=next;
+            }
+            SourcePathStep::ArrayItem{i,j,level,member_handle}=>{
+                let EntityKind::Insert(ins)=&current.kind else { return None };
+                let array_block=d.block(&ins.block)?;
+                let params=d.array_params(&current)?;
+                if params.is_suppressed(*i,*j,*level) { return None; }
+                let item=params.items()?.into_iter().find(|it|(it.i,it.j,it.level)==(*i,*j,*level))?;
+                let block_name=params.block_for(*i,*j,*level).to_string();
+                let source_block=d.block(&block_name)?;
+                let item_insert=cadcraft_doc::Insert{
+                    block:block_name,
+                    insert:item.insert,
+                    scale:cadcraft_geom::Vec3::new(1.0,1.0,1.0),
+                    rotation:item.rotation,
+                    attribs:Vec::new(),
+                    cols:1,
+                    rows:1,
+                    col_spacing:0.0,
+                    row_spacing:0.0,
+                };
+                let member=cadcraft_doc::Handle::parse_hex(member_handle)?;
+                let next=(**source_block.entities.get(member)?).clone();
+                let into_array=parent.then_before(ins.transform(array_block.base.xy()));
+                parent=into_array.then_before(item_insert.transform(source_block.base.xy()));
+                current=next;
+            }
+        }
+    }
+
+    current.kind.transform(&parent);
+    Some((current,root))
 }
 
     fn record_json(record: &MeasurementRecord) -> serde_json::Value {
@@ -518,39 +577,49 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
         let Some(handle_hex)=record.source_handle.as_deref() else { continue; };
         let Some(handle)=cadcraft_doc::Handle::parse_hex(handle_hex) else { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; };
         let Ok(doc)=app.session.doc() else { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; };
-        if doc.model.get(handle).is_none() { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; }
-        let current_measurements=if record.kind==MeasureKind::Count {
-            count_measurement_for_handle(app,handle).into_iter().collect::<Vec<_>>()
+
+        let current_measurements=if let Some(path)=record.source_path.as_ref() {
+            if cadcraft_doc::Handle::parse_hex(&path.root_handle)!=Some(handle) {
+                result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue;
+            }
+            let Some((entity,root))=resolve_source_path(doc,path) else { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; };
+            if record.kind==MeasureKind::Count {
+                vec![PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:entity.common.layer,source_handle:root}]
+            } else {
+                measurements_for_entity(doc,&entity,root)
+            }
         } else {
-            measurements_for_handle(app,handle)
+            if doc.model.get(handle).is_none(){result.missing_source+=1;result.invalid_record_ids.insert(record.id);continue;}
+            if record.kind==MeasureKind::Count {
+                count_measurement_for_handle(app,handle).into_iter().collect::<Vec<_>>()
+            } else {
+                measurements_for_handle(app,handle)
+            }
         };
-        let geometry_stale=record.source_geometry_signature.as_ref().is_some_and(|expected| {
-            !current_measurements.iter().any(|measurement|measurement.kind==record.kind && geometry_signature(measurement)==*expected)
+
+        let geometry_stale=record.source_geometry_signature.as_ref().is_some_and(|expected|{
+            !current_measurements.iter().any(|measurement|measurement.kind==record.kind&&geometry_signature(measurement)==*expected)
         });
+
         if let Some(entity_scope)=crate::bim_collab::entity_scope(app,handle) {
             let mismatch=record.scope.floor_id!=Some(entity_scope.floor_id)
                 || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
                 || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
             let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
-            let identity_collision=entity_scope.entity_handle.is_some_and(|identity|identity!=handle && doc.model.get(identity).is_some());
+            let identity_collision=entity_scope.entity_handle.is_some_and(|identity|identity!=handle&&doc.model.get(identity).is_some());
             if mismatch {
-                result.scope_mismatch+=1;
-                result.invalid_record_ids.insert(record.id);
+                result.scope_mismatch+=1;result.invalid_record_ids.insert(record.id);
             } else if identity_collision {
-                result.identity_collision+=1;
-                result.invalid_record_ids.insert(record.id);
+                result.identity_collision+=1;result.invalid_record_ids.insert(record.id);
             } else if geometry_stale {
-                result.stale_geometry+=1;
-                result.invalid_record_ids.insert(record.id);
-            } else if stale && record.source_geometry_signature.is_none() {
-                result.stale_revision+=1;
-                result.invalid_record_ids.insert(record.id);
+                result.stale_geometry+=1;result.invalid_record_ids.insert(record.id);
+            } else if stale&&record.source_geometry_signature.is_none() {
+                result.stale_revision+=1;result.invalid_record_ids.insert(record.id);
             } else {
                 result.valid_links+=1;
             }
         } else if geometry_stale {
-            result.stale_geometry+=1;
-            result.invalid_record_ids.insert(record.id);
+            result.stale_geometry+=1;result.invalid_record_ids.insert(record.id);
         } else {
             result.valid_links+=1;
         }
@@ -767,73 +836,82 @@ fn hatch_loop_metrics(loops:&[cadcraft_doc::HatchLoop])->Option<(f64,f64,Vec<[f6
     (perimeter.is_finite()&&area.is_finite()).then_some((perimeter,area,points))
 }
 
-fn measurements_for_handle(app:&CadApp, handle:cadcraft_doc::Handle)->Vec<PendingMeasurement> {
-    let Ok(drawing)=app.session.doc() else { return Vec::new(); };
-    let Some(entity)=drawing.model.get(handle) else { return Vec::new(); };
+fn measurements_for_entity(drawing:&cadcraft_doc::Drawing,entity:&cadcraft_doc::Entity,source_handle:cadcraft_doc::Handle)->Vec<PendingMeasurement> {
     let layer=entity.common.layer.clone();
     let mut out=Vec::new();
     match &entity.kind {
-            EntityKind::Line(line) => {
-                let value = (line.b.x-line.a.x).hypot(line.b.y-line.a.y).hypot(line.b.z-line.a.z);
-                if value.is_finite() {
-                    out.push(PendingMeasurement{kind:MeasureKind::Length,points:vec![[line.a.x,line.a.y],[line.b.x,line.b.y]],raw_value:value,layer,source_handle:handle});
-                }
+        EntityKind::Line(line)=>{
+            let value=(line.b.x-line.a.x).hypot(line.b.y-line.a.y).hypot(line.b.z-line.a.z);
+            if value.is_finite() {
+                out.push(PendingMeasurement{kind:MeasureKind::Length,points:vec![[line.a.x,line.a.y],[line.b.x,line.b.y]],raw_value:value,layer,source_handle});
             }
-            EntityKind::Arc(arc) if arc.radius.is_finite() && arc.radius > 0.0 => {
-                let delta=(arc.end-arc.start).rem_euclid(std::f64::consts::TAU);
-                let value=arc.radius*delta;
-                let a=[arc.center.x+arc.radius*arc.start.cos(),arc.center.y+arc.radius*arc.start.sin()];
-                let b=[arc.center.x+arc.radius*arc.end.cos(),arc.center.y+arc.radius*arc.end.sin()];
-                if value.is_finite() { out.push(PendingMeasurement{kind:MeasureKind::Length,points:vec![a,b],raw_value:value,layer,source_handle:handle}); }
-            }
-            EntityKind::Circle(circle) if circle.radius.is_finite() && circle.radius > 0.0 => {
-                let area=std::f64::consts::PI*circle.radius*circle.radius;
-                out.push(PendingMeasurement{kind:MeasureKind::Area,points:vec![[circle.center.x,circle.center.y],[circle.center.x+circle.radius,circle.center.y]],raw_value:area,layer,source_handle:handle});
-            }
-            EntityKind::LwPolyline(poly) => {
-                if let Some((perimeter,area))=lwpoly_metrics(&poly.vertices,poly.closed) {
-                    let points=poly.vertices.iter().map(|v|[v.p.x,v.p.y]).collect::<Vec<_>>();
-                    if perimeter>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle:handle}); }
-                    if poly.closed && area>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle:handle}); }
-                }
-            }
-            EntityKind::Polyline3d(poly) => {
-                let n=poly.points.len();
-                let edges=if poly.closed{n}else{n.saturating_sub(1)};
-                let mut value=0.0;
-                for i in 0..edges {
-                    let a=&poly.points[i]; let b=&poly.points[(i+1)%n];
-                    value+=(b.x-a.x).hypot(b.y-a.y).hypot(b.z-a.z);
-                }
-                if n>=2 && value.is_finite() {
-                    out.push(PendingMeasurement{kind:if poly.closed { MeasureKind::Perimeter } else { MeasureKind::Length },points:poly.points.iter().map(|p|[p.x,p.y]).collect(),raw_value:value,layer,source_handle:handle});
-                }
-            }
-            EntityKind::Region(region) => {
-                let area=region.area();
-                let perimeter=region.perimeter();
-                let points=region.loops.iter().flat_map(|l|l.vertices.iter().map(|v|[v.p.x,v.p.y])).collect::<Vec<_>>();
-                if perimeter.is_finite()&&perimeter>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle:handle}); }
-                if area.is_finite()&&area>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle:handle}); }
-            }
-            EntityKind::Hatch(hatch) => {
-                if let Some((perimeter,area,points))=hatch_loop_metrics(&hatch.loops) {
-                    if perimeter>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle:handle}); }
-                    if area>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle:handle}); }
-                }
-            }
-            EntityKind::Dimension(dm) if !matches!(dm.kind,cadcraft_doc::DimKind::Angular|cadcraft_doc::DimKind::Angular3P) => {
-                let style=drawing.dim_style(&dm.style).cloned().unwrap_or_default();
-                let value=cadcraft_render::dimension_geometry(dm,&style,drawing.header.f64("DIMSCALE",1.0)).measurement.abs();
-                if value.is_finite()&&value>0.0 {
-                    let points=vec![[dm.p13.x,dm.p13.y],[dm.p14.x,dm.p14.y],[dm.p15.x,dm.p15.y],[dm.p16.x,dm.p16.y],[dm.defpt.x,dm.defpt.y]];
-                    out.push(PendingMeasurement{kind:MeasureKind::Length,points,raw_value:value,layer,source_handle:handle});
-                }
-            }
-            _ => {}
         }
+        EntityKind::Arc(arc) if arc.radius.is_finite()&&arc.radius>0.0=>{
+            let delta=(arc.end-arc.start).rem_euclid(std::f64::consts::TAU);
+            let value=arc.radius*delta;
+            let a=[arc.center.x+arc.radius*arc.start.cos(),arc.center.y+arc.radius*arc.start.sin()];
+            let b=[arc.center.x+arc.radius*arc.end.cos(),arc.center.y+arc.radius*arc.end.sin()];
+            if value.is_finite(){out.push(PendingMeasurement{kind:MeasureKind::Length,points:vec![a,b],raw_value:value,layer,source_handle});}
+        }
+        EntityKind::Circle(circle) if circle.radius.is_finite()&&circle.radius>0.0=>{
+            let area=std::f64::consts::PI*circle.radius*circle.radius;
+            out.push(PendingMeasurement{kind:MeasureKind::Area,points:vec![[circle.center.x,circle.center.y],[circle.center.x+circle.radius,circle.center.y]],raw_value:area,layer,source_handle});
+        }
+        EntityKind::LwPolyline(poly)=>{
+            if let Some((perimeter,area))=lwpoly_metrics(&poly.vertices,poly.closed){
+                let points=poly.vertices.iter().map(|v|[v.p.x,v.p.y]).collect::<Vec<_>>();
+                if perimeter>0.0{out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle});}
+                if poly.closed&&area>0.0{out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle});}
+            }
+        }
+        EntityKind::Polyline3d(poly)=>{
+            let n=poly.points.len();
+            let edges=if poly.closed{n}else{n.saturating_sub(1)};
+            let mut value=0.0;
+            for i in 0..edges{
+                let a=&poly.points[i];let b=&poly.points[(i+1)%n];
+                value+=(b.x-a.x).hypot(b.y-a.y).hypot(b.z-a.z);
+            }
+            if n>=2&&value.is_finite(){
+                out.push(PendingMeasurement{kind:if poly.closed{MeasureKind::Perimeter}else{MeasureKind::Length},points:poly.points.iter().map(|p|[p.x,p.y]).collect(),raw_value:value,layer,source_handle});
+            }
+        }
+        EntityKind::Region(region)=>{
+            let area=region.area();
+            let perimeter=region.perimeter();
+            let points=region.loops.iter().flat_map(|l|l.vertices.iter().map(|v|[v.p.x,v.p.y])).collect::<Vec<_>>();
+            if perimeter.is_finite()&&perimeter>0.0{out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle});}
+            if area.is_finite()&&area>0.0{out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle});}
+        }
+        EntityKind::Hatch(hatch)=>{
+            if let Some((perimeter,area,points))=hatch_loop_metrics(&hatch.loops){
+                if perimeter>0.0{out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle});}
+                if area>0.0{out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle});}
+            }
+        }
+        EntityKind::Dimension(dm) if !matches!(dm.kind,cadcraft_doc::DimKind::Angular|cadcraft_doc::DimKind::Angular3P)=>{
+            let style=drawing.dim_style(&dm.style).cloned().unwrap_or_default();
+            let value=cadcraft_render::dimension_geometry(dm,&style,drawing.header.f64("DIMSCALE",1.0)).measurement.abs();
+            if value.is_finite()&&value>0.0{
+                let points=vec![[dm.p13.x,dm.p13.y],[dm.p14.x,dm.p14.y],[dm.p15.x,dm.p15.y],[dm.p16.x,dm.p16.y],[dm.defpt.x,dm.defpt.y]];
+                out.push(PendingMeasurement{kind:MeasureKind::Length,points,raw_value:value,layer,source_handle});
+            }
+        }
+        _=>{}
     }
     out
+}
+
+fn measurements_for_handle(app:&CadApp,handle:cadcraft_doc::Handle)->Vec<PendingMeasurement>{
+    let Ok(drawing)=app.session.doc() else{return Vec::new();};
+    let Some(entity)=drawing.model.get(handle) else{return Vec::new();};
+    measurements_for_entity(drawing,entity.as_ref(),handle)
+}
+
+fn measurements_for_path(app:&CadApp,path:&SourcePath)->Vec<PendingMeasurement>{
+    let Ok(drawing)=app.session.doc() else{return Vec::new();};
+    let Some((entity,root))=resolve_source_path(drawing,path) else{return Vec::new();};
+    measurements_for_entity(drawing,&entity,root)
 }
 
 fn selected_measurements(app:&CadApp)->Vec<PendingMeasurement> {

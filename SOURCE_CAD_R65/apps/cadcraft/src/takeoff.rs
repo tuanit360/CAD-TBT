@@ -182,13 +182,14 @@ impl State {
         let source_scope=crate::bim_collab::entity_scope(app,handle);
         let scope=source_scope.as_ref().map(|x|Scope{floor_id:Some(x.floor_id),discipline:Some(x.discipline.clone()),owner_account_id:Some(x.owner_account_id.clone())}).unwrap_or_else(||old.scope.clone());
         let revision=source_scope.map(|x|x.revision);
+        let signature=geometry_signature(&current);
         self.snapshot();
         self.records[index].points=current.points;
         self.records[index].raw_value=current.raw_value;
         self.records[index].layer=current.layer;
         self.records[index].scope=scope;
         self.records[index].source_revision=revision;
-        self.records[index].source_geometry_signature=Some(geometry_signature(&current));
+        self.records[index].source_geometry_signature=Some(signature);
         self.records[index].status=MeasureStatus::Review;
         self.audit_change(id,"REFRESH_SOURCE",
             Some(format!("value={:.6};scope={:?};revision={:?}",old.raw_value,old.scope,old.source_revision)),

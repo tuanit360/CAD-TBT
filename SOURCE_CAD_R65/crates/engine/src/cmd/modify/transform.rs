@@ -122,6 +122,34 @@ pub(super) fn run_scale(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "handles": r.iter().map(|h| h.hex()).collect::<Vec<_>>() }))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tbt360_copy_identity_keeps_scope_and_resets_identity_revision() {
+        let mut common=cadcraft_doc::Common::default();
+        common.xdata=vec![
+            cadcraft_doc::RawTag{code:1001,value:"TBT360_BIM".into()},
+            cadcraft_doc::RawTag{code:1000,value:"floor=2;discipline=ELEC;owner=u1;revision=9;entity=2A".into()},
+        ];
+        refresh_tbt360_bim_copy_identity(&mut common,Handle(0x55));
+        assert_eq!(common.xdata[1].value,"floor=2;discipline=ELEC;owner=u1;revision=1;entity=55");
+    }
+
+    #[test]
+    fn non_bim_xdata_is_untouched() {
+        let mut common=cadcraft_doc::Common::default();
+        common.xdata=vec![
+            cadcraft_doc::RawTag{code:1001,value:"ACME".into()},
+            cadcraft_doc::RawTag{code:1000,value:"revision=9;entity=2A".into()},
+        ];
+        let before=common.xdata.clone();
+        refresh_tbt360_bim_copy_identity(&mut common,Handle(0x55));
+        assert_eq!(common.xdata,before);
+    }
+}
+
 pub(super) fn run_mirror(s: &mut Session, p: &Value) -> Result<Value> {
     let hs = targets(s, p)?;
     let a = point_req("mirror", p, "p1")?;

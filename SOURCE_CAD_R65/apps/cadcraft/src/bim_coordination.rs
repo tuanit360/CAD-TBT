@@ -19,14 +19,6 @@ impl ScopeProgress{
         self.status=match self.percent{0=>ProgressStatus::NotStarted,100=>ProgressStatus::Complete,_=>ProgressStatus::InProgress};
     }
 
-    #[test]
-    fn issue_follows_open_inprogress_resolved_closed_lifecycle() {
-        let mut i=CoordinationIssue{id:"I1".into(),floor_id:"F1".into(),source_discipline:"ARCH".into(),target_discipline:"STRUCT".into(),source_handle:None,assigned_to:None,severity:IssueSeverity::Error,status:IssueStatus::Open,description:"x".into()};
-        assert!(i.start());
-        assert!(i.resolve());
-        assert!(i.close());
-        assert_eq!(i.status,IssueStatus::Closed);
-    }
 }
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
@@ -89,6 +81,15 @@ impl QualityGate{
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn issue_follows_open_inprogress_resolved_closed_lifecycle() {
+        let mut i=CoordinationIssue{id:"I1".into(),floor_id:"F1".into(),source_discipline:"ARCH".into(),target_discipline:"STRUCT".into(),source_handle:None,assigned_to:None,severity:IssueSeverity::Error,status:IssueStatus::Open,description:"x".into()};
+        assert!(i.start());
+        assert!(i.resolve());
+        assert!(i.close());
+        assert_eq!(i.status,IssueStatus::Closed);
+    }
+
     #[test]
     fn progress_reaches_complete_at_one_hundred_percent(){
         let mut p=ScopeProgress{floor_id:"F1".into(),discipline:"ARCH".into(),workset_id:None,percent:0,status:ProgressStatus::NotStarted,updated_by:"u".into()};

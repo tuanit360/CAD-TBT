@@ -266,7 +266,15 @@ pub(crate) fn insert_with(
             });
         }
     }
-    s.add_entity(EntityKind::Insert(ins))
+    let shared_bim_source=blk.entities.first().and_then(|first|{
+        let key=crate::cmd::modify::tbt360_bim_scope_key(&first.common)?;
+        blk.entities.iter().all(|e|crate::cmd::modify::tbt360_bim_scope_key(&e.common).as_deref()==Some(key.as_str())).then(||first.common.clone())
+    });
+    let h=s.add_entity(EntityKind::Insert(ins))?;
+    if let Some(source)=shared_bim_source {
+        s.doc_mut()?.modify_entity(h,|entity|crate::cmd::modify::copy_tbt360_bim_scope(&source,&mut entity.common,h))?;
+    }
+    Ok(h)
 }
 
 fn run_block(s: &mut Session, p: &Value) -> Result<Value> {
@@ -401,7 +409,8 @@ fn run_wblock(s: &mut Session, p: &Value) -> Result<Value> {
             .collect()
     };
     for mut e in ents {
-        e.handle = d.new_handle();
+        e.handle=d.new_handle();
+        crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         d.model.push(e);
     }
     let hooks = super::file::io().ok_or_else(|| bad("wblock", "file formats are not available in this build"))?;

@@ -1,6 +1,6 @@
-; TBT360 CAD R65 Windows installer. Build from Rust binaries, never from reference EXE.
+; CAD360 Unified R67 installer: one Windows application containing CAD 2D, BIM, IFC and QTO.
 #define MyAppName "CAD 360 Việt Nam - TBT"
-#define MyAppVersion "0.13.0"
+#define MyAppVersion "0.67.0"
 #define MyAppPublisher "Công ty CP CN TBT Việt Nam"
 [Setup]
 AppId={{0B643D1A-795E-4C0A-A36A-4AF2C03D1E6F}

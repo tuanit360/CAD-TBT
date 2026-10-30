@@ -1,0 +1,33 @@
+name: BIM Collaboration Branch Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/bim-collaboration-workspaces
+    paths:
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs'
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/main.rs'
+      - 'BIM_COLLABORATION_ARCHITECTURE.md'
+      - '.github/workflows/bim-collaboration.yml'
+
+concurrency:
+  group: bim-collab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bim-collab:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Check CAD app with BIM collaboration module
+        run: cargo check --locked -p cadcraft
+      - name: Test BIM collaboration model
+        run: cargo test --locked -p cadcraft bim_collab::tests -- --nocapture

@@ -674,6 +674,36 @@ fn shared_derived_scope_tangent_circle_mixed_sources_stays_unscoped() {
 }
 
 #[test]
+fn txt2mtxt_matching_sources_keep_shared_bim_scope() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("text",&json!({"at":[0,2],"text":"A","height":1.0})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("text",&json!({"at":[0,0],"text":"B","height":1.0})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,2,"ARCH","u1",3);
+    add_bim(&mut s,b,2,"ARCH","u1",7);
+    let r=s.execute("txt2mtxt",&json!({"handles":[a.hex(),b.hex()],"combine":true,"sort":"selection"})).unwrap();
+    let h=Handle::parse_hex(r["handles"][0].as_str().unwrap()).unwrap();
+    assert_eq!(h,a);
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=2"));
+    assert!(p.contains("discipline=ARCH"));
+    assert!(p.contains("owner=u1"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn txt2mtxt_mixed_sources_strip_bim_scope() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("text",&json!({"at":[0,2],"text":"A","height":1.0})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("text",&json!({"at":[0,0],"text":"B","height":1.0})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,2,"ELEC","u2",1);
+    let r=s.execute("txt2mtxt",&json!({"handles":[a.hex(),b.hex()],"combine":true,"sort":"selection"})).unwrap();
+    let h=Handle::parse_hex(r["handles"][0].as_str().unwrap()).unwrap();
+    let e=s.doc().unwrap().entity(h).unwrap();
+    assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
+}
+
+#[test]
 fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
     let mut s=Session::new();
     let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

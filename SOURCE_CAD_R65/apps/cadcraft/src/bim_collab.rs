@@ -831,6 +831,14 @@ impl State {
         self.audit("ENTITY_UPDATE_QUEUED", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Revision {} -> {}", base_revision, local_revision));
     }
 
+    fn mark_all_synced(&mut self) {
+        for change in &mut self.pending_changes {
+            change.synced = true;
+        }
+        self.dirty_local_changes = 0;
+        self.audit("SYNC_ALL_CONFIRMED", Some(self.active_floor_id), Some(self.active_discipline), None, "All pending local changes marked synced");
+    }
+
     fn remote_revision(&self, handle: cadcraft_doc::Handle) -> u64 {
         self.remote_revisions.iter().find(|(h, _)| *h == handle).map(|(_, r)| *r).unwrap_or(0)
     }

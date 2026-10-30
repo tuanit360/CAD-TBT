@@ -108,9 +108,11 @@ pub(crate) fn break_entity(s: &mut Session, h: Handle, p1: Vec2, p2: Vec2) -> Re
     d.remove_entity(h);
     let mut out = Vec::new();
     for k in pieces {
-        let nh = d.new_handle();
-        if let Some(st) = d.space_mut(&space) {
-            st.push(Entity { handle: nh, common: common.clone(), kind: k });
+        let nh=d.new_handle();
+        let mut piece_common=common.clone();
+        super::refresh_tbt360_bim_copy_identity(&mut piece_common,nh);
+        if let Some(st)=d.space_mut(&space) {
+            st.push(Entity{handle:nh,common:piece_common,kind:k});
             out.push(nh);
         }
     }
@@ -201,14 +203,38 @@ pub(crate) fn join(s: &mut Session, hs: &[Handle]) -> Result<Option<Handle>> {
     if !closed && let Some(l) = chain.last() {
         vs.push(PolyVertex::new(l.end()));
     }
-    let space = s.space();
-    let doc = s.doc_mut()?;
-    for h in hs.iter().filter(|h| used.contains(*h)) {
+    let space=s.space();
+    let used_unique=used.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    let shared_bim_source={
+        let doc=s.doc()?;
+        let mut source=None;
+        let mut key=None;
+        let mut same=true;
+        for h in &used_unique {
+            let Some(entity)=doc.entity(*h) else { continue; };
+            let entity_key=super::tbt360_bim_scope_key(&entity.common);
+            if key.is_none() {
+                key=entity_key.clone();
+                source=Some(entity.common.clone());
+            } else if entity_key!=key {
+                same=false;
+                break;
+            }
+        }
+        if same && key.is_some() { source } else { None }
+    };
+    let doc=s.doc_mut()?;
+    for h in &used_unique {
         doc.remove_entity(*h);
     }
-    let nh = doc.new_handle();
-    if let Some(st) = doc.space_mut(&space) {
-        st.push(Entity { handle: nh, common: common.unwrap_or_default(), kind: lwpoly(vs, closed) });
+    let nh=doc.new_handle();
+    let mut joined_common=common.unwrap_or_default();
+    super::strip_tbt360_bim(&mut joined_common);
+    if let Some(source)=shared_bim_source {
+        super::copy_tbt360_bim_scope(&source,&mut joined_common,nh);
+    }
+    if let Some(st)=doc.space_mut(&space) {
+        st.push(Entity{handle:nh,common:joined_common,kind:lwpoly(vs,closed)});
     }
     s.set_selection(Vec::new());
     Ok(Some(nh))

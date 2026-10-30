@@ -63,6 +63,7 @@ struct MeasurementRecord {
     status: MeasureStatus,
     scope: Scope,
     source_handle: Option<String>,
+    source_revision: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -134,7 +135,7 @@ impl State {
         self.next_record_id += 1;
         let record = MeasurementRecord {
             id, kind, points, raw_value, layer, work_group: String::new(), work_code: String::new(),
-            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None,
+            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None, source_revision: None,
         };
         self.records.push(record.clone());
         self.audit_change(id, "CREATE", None, Some(format!("{:?}:{:.6}", record.kind, record.raw_value)));
@@ -156,13 +157,14 @@ impl State {
         Ok(id)
     }
 
-    fn add_measurement_from_entity(&mut self, measurement: PendingMeasurement, scope: &Scope) -> Result<u64, String> {
+    fn add_measurement_from_entity(&mut self, measurement: PendingMeasurement, scope: &Scope, source_revision: Option<u64>) -> Result<u64, String> {
         let id=self.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,scope)?;
         let source_handle=measurement.source_handle.hex();
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
             record.source_handle=Some(source_handle.clone());
+            record.source_revision=source_revision;
         }
-        self.audit_change(id,"SOURCE_HANDLE",None,Some(source_handle));
+        self.audit_change(id,"SOURCE_HANDLE",None,Some(format!("{}@{:?}",source_handle,source_revision)));
         Ok(id)
     }
 
@@ -229,7 +231,8 @@ impl State {
                 "discipline": record.scope.discipline,
                 "owner_account_id": record.scope.owner_account_id
             },
-            "source_handle": record.source_handle
+            "source_handle": record.source_handle,
+            "source_revision": record.source_revision
         })
     }
 
@@ -291,6 +294,7 @@ impl State {
             }
             let source_handle=item.get("source_handle").and_then(serde_json::Value::as_str).map(str::to_string);
             if source_handle.as_deref().is_some_and(|h|cadcraft_doc::Handle::parse_hex(h).is_none()) { return Err("Measurement source_handle không hợp lệ".into()); }
+            let source_revision=item.get("source_revision").and_then(serde_json::Value::as_u64);
             records.push(MeasurementRecord {
                 id, kind, points, raw_value,
                 layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
@@ -301,6 +305,7 @@ impl State {
                 status,
                 scope: Scope{floor_id,discipline,owner_account_id},
                 source_handle,
+                source_revision,
             });
         }
         let mut audit = Vec::new();
@@ -341,18 +346,19 @@ struct PendingMeasurement {
     source_handle: cadcraft_doc::Handle,
 }
 
-fn scope_from_entity_or_active(app:&CadApp, handle:cadcraft_doc::Handle, active_scope:&Scope)->Scope {
-    crate::bim_collab::entity_scope(app,handle).map(|scope|Scope {
+fn scope_from_entity_or_active(app:&CadApp, handle:cadcraft_doc::Handle, active_scope:&Scope)->(Scope,Option<u64>) {
+    crate::bim_collab::entity_scope(app,handle).map(|scope|(Scope {
         floor_id:Some(scope.floor_id),
         discipline:Some(scope.discipline),
         owner_account_id:Some(scope.owner_account_id),
-    }).unwrap_or_else(||active_scope.clone())
+    },Some(scope.revision))).unwrap_or_else(||(active_scope.clone(),None))
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct SourceValidation {
     missing_source: usize,
     scope_mismatch: usize,
+    stale_revision: usize,
     valid_links: usize,
     invalid_record_ids: std::collections::BTreeSet<u64>,
 }
@@ -368,7 +374,16 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
             let mismatch=record.scope.floor_id!=Some(entity_scope.floor_id)
                 || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
                 || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
-            if mismatch { result.scope_mismatch+=1; result.invalid_record_ids.insert(record.id); } else { result.valid_links+=1; }
+            let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
+            if mismatch {
+                result.scope_mismatch+=1;
+                result.invalid_record_ids.insert(record.id);
+            } else if stale {
+                result.stale_revision+=1;
+                result.invalid_record_ids.insert(record.id);
+            } else {
+                result.valid_links+=1;
+            }
         } else {
             result.valid_links+=1;
         }
@@ -695,15 +710,15 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
             for measurement in measurements {
-                let entity_scope=scope_from_entity_or_active(app,measurement.source_handle,scope);
-                let _=state.add_measurement_from_entity(measurement,&entity_scope);
+                let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
+                let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
             }
         }
         if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
             let measurements=selected_count_measurements(app);
             for measurement in measurements {
-                let entity_scope=scope_from_entity_or_active(app,measurement.source_handle,scope);
-                let _=state.add_measurement_from_entity(measurement,&entity_scope);
+                let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
+                let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
             }
         }
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));
@@ -754,8 +769,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let source_validation=validate_sources(app,state);
     if source_validation.missing_source>0 || source_validation.scope_mismatch>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
-            "Liên kết nguồn QTO cần kiểm tra: {} record mất entity nguồn, {} record lệch BIM scope.",
-            source_validation.missing_source,source_validation.scope_mismatch
+            "Liên kết nguồn QTO cần kiểm tra: {} mất entity nguồn, {} lệch BIM scope, {} đã thay đổi hình học/revision.",
+            source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision
         ));
     } else if source_validation.valid_links>0 {
         ui.label(format!("Liên kết nguồn QTO hợp lệ: {} record.",source_validation.valid_links));
@@ -1088,10 +1103,23 @@ mod tests {
     }
 
     #[test]
+    fn qto_v3_roundtrip_preserves_source_revision() {
+        let mut state=State::default();
+        let scope=Scope{floor_id:Some(1),discipline:Some("ARCH".into()),owner_account_id:Some("u1".into())};
+        let measurement=PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:"DEVICE".into(),source_handle:cadcraft_doc::Handle(10)};
+        state.add_measurement_from_entity(measurement,&scope,Some(4)).unwrap();
+        let json=state.to_json();
+        let mut reopened=State::default();
+        reopened.load_json(&json).unwrap();
+        assert_eq!(reopened.records[0].source_revision,Some(4));
+    }
+
+    #[test]
     fn source_validation_default_has_no_false_errors() {
         let validation=SourceValidation::default();
         assert_eq!(validation.missing_source,0);
         assert_eq!(validation.scope_mismatch,0);
+        assert_eq!(validation.stale_revision,0);
         assert_eq!(validation.valid_links,0);
     }
 
@@ -1121,12 +1149,13 @@ mod tests {
         let mut state=State::default();
         let scope=Scope{floor_id:Some(2),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         let measurement=PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:"DEVICE".into(),source_handle:cadcraft_doc::Handle(0x2A)};
-        let id=state.add_measurement_from_entity(measurement,&scope).unwrap();
+        let id=state.add_measurement_from_entity(measurement,&scope,Some(7)).unwrap();
         assert_eq!(state.records[0].source_handle.as_deref(),Some("2A"));
         let json=state.to_json();
         let mut reopened=State::default();
         reopened.load_json(&json).unwrap();
         assert_eq!(reopened.records[0].source_handle.as_deref(),Some("2A"));
+        assert_eq!(reopened.records[0].source_revision,Some(7));
         assert_eq!(reopened.records[0].scope.discipline.as_deref(),Some("ELEC"));
         assert_eq!(id,1);
     }

@@ -2,6 +2,42 @@ use super::*;
 
 // ---------------- core operations ----------------
 
+pub(crate) fn tbt360_bim_scope_key(common:&cadcraft_doc::Common)->Option<String> {
+    let mut in_bim=false;
+    for tag in &common.xdata {
+        if tag.code==1001 {
+            in_bim=tag.value.eq_ignore_ascii_case("TBT360_BIM");
+            continue;
+        }
+        if in_bim && tag.code==1000 {
+            let mut fields=tag.value.split(';').filter(|part|part.starts_with("floor=")||part.starts_with("discipline=")||part.starts_with("owner=")).collect::<Vec<_>>();
+            fields.sort_unstable();
+            return Some(fields.join(";"));
+        }
+    }
+    None
+}
+
+pub(crate) fn copy_tbt360_bim_scope(source:&cadcraft_doc::Common,target:&mut cadcraft_doc::Common,new_handle:Handle) {
+    let mut in_bim=false;
+    let mut copied=false;
+    for tag in &source.xdata {
+        if tag.code==1001 {
+            in_bim=tag.value.eq_ignore_ascii_case("TBT360_BIM");
+            if in_bim {
+                target.xdata.push(cadcraft_doc::RawTag{code:1001,value:"TBT360_BIM".into()});
+            }
+            continue;
+        }
+        if in_bim && tag.code==1000 {
+            target.xdata.push(tag.clone());
+            copied=true;
+            break;
+        }
+    }
+    if copied { refresh_tbt360_bim_copy_identity(target,new_handle); }
+}
+
 pub(crate) fn refresh_tbt360_bim_copy_identity(common:&mut cadcraft_doc::Common,new_handle:Handle) {
     let mut in_bim=false;
     for tag in &mut common.xdata {

@@ -369,7 +369,6 @@ fn main() -> eframe::Result {
                 app.set_status(error);
             }
             app.system_languages = std::env::var("TBT360_LOCALE")
-                .or_else(|_| std::env::var("CADCRAFT_LOCALE"))
                 .map(|s| vec![s])
                 .unwrap_or_else(|_| sys_locale::get_locales().collect());
             // The user profile (Options): drafting settings, selection sizes, drawing-area colours.

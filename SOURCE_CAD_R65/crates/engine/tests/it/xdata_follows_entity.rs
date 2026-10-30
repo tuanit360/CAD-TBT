@@ -600,6 +600,80 @@ fn common_scope_rule_wipeout_inherits_polyline_source() {
 }
 
 #[test]
+fn shared_derived_scope_qdim_inherits_matching_sources() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[5,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,2,"ARCH","u1",1);
+    add_bim(&mut s,b,2,"ARCH","u1",2);
+    let r=s.execute("qdim",&json!({"handles":[a.hex(),b.hex()],"at":[0,4]})).unwrap();
+    let hs=r["handles"].as_array().unwrap();
+    assert!(!hs.is_empty());
+    for v in hs {
+        let h=Handle::parse_hex(v.as_str().unwrap()).unwrap();
+        let p=bim_payload(&s,h);
+        assert!(p.contains("floor=2"));
+        assert!(p.contains("discipline=ARCH"));
+        assert!(p.contains("owner=u1"));
+        assert!(p.contains("revision=1"));
+    }
+}
+
+#[test]
+fn shared_derived_scope_qdim_mixed_sources_stays_unscoped() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[5,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,2,"ELEC","u2",1);
+    let r=s.execute("qdim",&json!({"handles":[a.hex(),b.hex()],"at":[0,4]})).unwrap();
+    for v in r["handles"].as_array().unwrap() {
+        let h=Handle::parse_hex(v.as_str().unwrap()).unwrap();
+        let e=s.doc().unwrap().entity(h).unwrap();
+        assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
+    }
+}
+
+#[test]
+fn shared_derived_scope_leader_inherits_explicit_source() {
+    let mut s=Session::new();
+    let src=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,src,3,"ELEC","u1",5);
+    let r=s.execute("leader",&json!({"points":[[0,0],[4,2]],"source":src.hex()})).unwrap();
+    let h=Handle::parse_hex(r["handles"][0].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=3"));
+    assert!(p.contains("discipline=ELEC"));
+    assert!(p.contains("owner=u1"));
+}
+
+#[test]
+fn shared_derived_scope_mleader_inherits_explicit_sources() {
+    let mut s=Session::new();
+    let src=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,src,4,"STRUCT","u2",2);
+    let r=s.execute("mleader",&json!({"points":[[0,0],[4,2]],"text":"A","sources":[src.hex()]})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=4"));
+    assert!(p.contains("discipline=STRUCT"));
+    assert!(p.contains("owner=u2"));
+}
+
+#[test]
+fn shared_derived_scope_tangent_circle_mixed_sources_stays_unscoped() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[20,-5],[20,5]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,2,"ELEC","u2",1);
+    let r=s.execute("circle.ttr",&json!({"h1":a.hex(),"p1":[5,0],"h2":b.hex(),"p2":[20,0],"radius":5.0})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let e=s.doc().unwrap().entity(h).unwrap();
+    assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
+}
+
+#[test]
 fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
     let mut s=Session::new();
     let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

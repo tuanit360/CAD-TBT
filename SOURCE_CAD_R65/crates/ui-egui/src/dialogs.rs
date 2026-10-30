@@ -321,8 +321,8 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
 fn about(ctx: &egui::Context, open: &mut bool) {
     let t = Tokens::get();
     let tab_id = egui::Id::unique("about_tab");
-    egui::Window::new(crate::tl!("About CADCraft"))
-        .id(egui::Id::unique("About CADCraft"))
+    egui::Window::new("Giới thiệu CAD 360 Việt Nam - TBT")
+        .id(egui::Id::unique("About CAD 360 Viet Nam - TBT"))
         .open(open)
         .default_size(vec2(640.0, 420.0))
         .collapsible(false)
@@ -341,11 +341,11 @@ fn about(ctx: &egui::Context, open: &mut bool) {
                 1 => crate::credits::contributors_ui(ui),
                 2 => crate::credits::models_ui(ui),
                 _ => {
-                    ui.heading(crate::tl!("CADCraft"));
+                    ui.heading("CAD 360 Việt Nam - TBT");
                     ui.label(crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
-                    ui.label(crate::tl!("Computer-aided design and drafting: an open-source, clean-room CAD application written in pure Rust."));
+                    ui.label("Ứng dụng thiết kế và triển khai bản vẽ CAD native viết bằng Rust.");
                     ui.add_space(6.0);
-                    ui.label(RichText::new(crate::tl!("One of the Crafting Apps by the ArtCraft team and community.")).color(t.text_dim));
+                    ui.label(RichText::new("Sản phẩm CAD 360 Việt Nam của TBT Việt Nam; phát triển trên nền mã nguồn mở CADCraft và giữ nguyên các nghĩa vụ giấy phép tương ứng.").color(t.text_dim));
                     ui.hyperlink_to("getartcraft.com/apps/cadcraft", "https://getartcraft.com/apps/cadcraft");
                     ui.hyperlink_to(crate::tl!("Join us on Discord"), "https://discord.gg/artcraft");
                     ui.add_space(6.0);

@@ -965,7 +965,7 @@ fn collect_nested_source_paths(d:&cadcraft_doc::Drawing,current:&cadcraft_doc::E
 fn nested_source_candidates(app:&CadApp,root:cadcraft_doc::Handle)->Vec<(SourcePath,PendingMeasurement)> {
     let Ok(d)=app.session.doc() else { return Vec::new(); };
     let Some(root_entity)=d.model.get(root) else { return Vec::new(); };
-    if !matches!(root_entity.kind,EntityKind::Insert(_)) { return Vec::new(); }
+    if !matches!(&root_entity.kind,EntityKind::Insert(_)) { return Vec::new(); }
 
     let base=SourcePath{root_handle:root.hex(),steps:Vec::new()};
     let mut paths=Vec::new();

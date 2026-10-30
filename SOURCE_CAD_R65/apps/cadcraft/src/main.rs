@@ -27,6 +27,7 @@ mod workspace;
 mod takeoff;
 mod bim_collab;
 mod bim_sync;
+mod bim_api;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};

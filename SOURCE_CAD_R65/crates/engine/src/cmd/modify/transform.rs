@@ -18,6 +18,24 @@ pub(crate) fn tbt360_bim_scope_key(common:&cadcraft_doc::Common)->Option<String>
     None
 }
 
+pub(crate) fn inherit_tbt360_bim_scope_from_sources(d:&mut cadcraft_doc::Drawing,new_handle:Handle,sources:&[Handle])->bool {
+    if sources.is_empty() { return false; }
+    let mut source_common=None;
+    let mut key=None;
+    for h in sources {
+        let Some(e)=d.entity(*h) else { return false };
+        let Some(k)=tbt360_bim_scope_key(&e.common) else { return false };
+        if let Some(expected)=key.as_ref() {
+            if expected!=&k { return false; }
+        } else {
+            key=Some(k);
+            source_common=Some(e.common.clone());
+        }
+    }
+    let Some(common)=source_common else { return false };
+    d.modify_entity(new_handle,|e|copy_tbt360_bim_scope(&common,&mut e.common,new_handle)).is_ok()
+}
+
 pub(crate) fn copy_tbt360_bim_scope(source:&cadcraft_doc::Common,target:&mut cadcraft_doc::Common,new_handle:Handle) {
     let mut in_bim=false;
     let mut copied=false;

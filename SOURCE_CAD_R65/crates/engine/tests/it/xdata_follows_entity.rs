@@ -153,6 +153,47 @@ fn a_copy_saves_its_xdata() {
 }
 
 #[test]
+fn offset_gets_new_tbt360_bim_identity() {
+    let (mut s,l,_)=session();
+    s.doc_mut().unwrap().modify_entity(l,|e|e.common.xdata.extend([
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",l.hex())},
+    ])).unwrap();
+    let r=s.execute("offset",&json!({"handle":l.hex(),"distance":2.0,"side":[0.0,5.0]})).unwrap();
+    let nh=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let p=xdata_of(s.doc().unwrap(),nh);
+    let payload=p.iter().find(|(code,value)|*code==1000&&value.contains("floor=2")).unwrap().1.clone();
+    assert!(payload.contains("discipline=ELEC"));
+    assert!(payload.contains("owner=u1"));
+    assert!(payload.contains("revision=1"));
+    assert!(payload.contains(&format!("entity={}",nh.hex())));
+    let original=xdata_of(s.doc().unwrap(),l);
+    assert!(original.iter().any(|(_,v)|v.contains("revision=7")));
+}
+
+#[test]
+fn exploded_bim_pieces_keep_scope_with_unique_identity_only() {
+    let (mut s,_,p)=session();
+    s.doc_mut().unwrap().modify_entity(p,|e|e.common.xdata.extend([
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:format!("floor=3;discipline=STRUCT;owner=u2;revision=4;entity={}",p.hex())},
+    ])).unwrap();
+    let before=model_handles(&s);
+    s.execute("explode",&json!({"handles":[p.hex()]})).unwrap();
+    let pieces=new_handles(&s,&before);
+    assert_eq!(pieces.len(),2);
+    for h in pieces {
+        let tags=xdata_of(s.doc().unwrap(),h);
+        assert!(!tags.iter().any(|(_,v)|v=="ACME_TAGS"||v=="P-01"),"foreign xdata stays removed on own EXPLODE pieces");
+        let payload=tags.iter().find(|(code,value)|*code==1000&&value.contains("floor=3")).unwrap().1.clone();
+        assert!(payload.contains("discipline=STRUCT"));
+        assert!(payload.contains("owner=u2"));
+        assert!(payload.contains("revision=1"));
+        assert!(payload.contains(&format!("entity={}",h.hex())));
+    }
+}
+
+#[test]
 fn exploded_pieces_do_not_keep_the_xdata() {
     let (mut s, _, p) = session();
     let before = model_handles(&s);

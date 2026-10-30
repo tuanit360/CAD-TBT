@@ -751,6 +751,21 @@ mod tests {
     use cadcraft_doc::geom::Vec2;
 
     #[test]
+    fn uncalibrated_qto_project_can_save_and_reopen() {
+        let mut original=State::default();
+        let id=original.add_measurement(MeasureKind::Count,Vec::new(),3.0,"DEVICE".into()).unwrap();
+        assert_eq!(id,1);
+        assert!(original.scale_to_m().is_none());
+        let json=original.to_json();
+        let mut reopened=State::default();
+        reopened.load_json(&json).unwrap();
+        assert!(reopened.scale_to_m().is_none());
+        assert_eq!(reopened.records.len(),1);
+        assert_eq!(reopened.records[0].kind,MeasureKind::Count);
+        assert_eq!(reopened.records[0].raw_value,3.0);
+    }
+
+    #[test]
     fn qto_project_json_roundtrip_preserves_calibration() {
         let original = State { drawing_distance: 2500.0, real_distance_m: 2.5, ..Default::default() };
         let mut restored = State::default();

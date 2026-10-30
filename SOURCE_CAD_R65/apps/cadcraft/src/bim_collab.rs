@@ -33,7 +33,7 @@ impl Discipline {
         }
     }
 
-    fn code(self) -> &'static str {
+    pub fn code(self) -> &'static str {
         match self {
             Self::Architecture => "ARCH", Self::Structure => "STRUCT", Self::Electrical => "ELEC",
             Self::Plumbing => "PLUMB", Self::Hvac => "HVAC", Self::Coordination => "COORD",
@@ -428,7 +428,7 @@ pub fn entity_scope(app: &cadcraft_ui_egui::CadApp, handle: cadcraft_doc::Handle
     let meta=bim_meta(&entity.common)?;
     Some(EntityScope {
         floor_id: meta.floor_id,
-        discipline: meta.discipline.label().to_string(),
+        discipline: meta.discipline.code().to_string(),
         owner_account_id: meta.owner_account_id,
     })
 }

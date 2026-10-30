@@ -6,6 +6,17 @@ use super::*;
 const CHAMFER_LINES_ONLY: &str =
     "CHAMFER works on lines (and polylines with the Polyline option); it cannot chamfer arcs, circles, ellipses or splines.";
 
+fn normalize_join_bim_common(mut common:cadcraft_doc::Common,other:&cadcraft_doc::Common,new_handle:Handle)->cadcraft_doc::Common {
+    let a=super::tbt360_bim_scope_key(&common);
+    let b=super::tbt360_bim_scope_key(other);
+    if a.is_some() && a==b {
+        super::refresh_tbt360_bim_copy_identity(&mut common,new_handle);
+    } else {
+        super::strip_tbt360_bim(&mut common);
+    }
+    common
+}
+
 fn as_line(e: &Entity) -> Option<Line> {
     match &e.kind {
         EntityKind::Line(l) => Some(Line::new(l.a.xy(), l.b.xy())),
@@ -31,7 +42,12 @@ pub(crate) fn fillet_lines(
     let e2 = d.entity(h2).map(|e| (**e).clone()).ok_or_else(|| EngineError::Other("no such object".into()))?;
     let (Some(l1), Some(l2)) = (as_line(&e1), as_line(&e2)) else {
         if chamfer.is_none() {
-            return crate::cmd::modify2::fillet_curves(s, h1, p1, h2, p2, radius);
+            let made=crate::cmd::modify2::fillet_curves(s,h1,p1,h2,p2,radius)?;
+            if let Some(nh)=made {
+                let common=normalize_join_bim_common(e1.common.clone(),&e2.common,nh);
+                s.doc_mut()?.modify_entity(nh,|e|e.common=common)?;
+            }
+            return Ok(made);
         }
         return Err(EngineError::Other(CHAMFER_LINES_ONLY.into()));
     };
@@ -67,7 +83,7 @@ pub(crate) fn fillet_lines(
         new_arc = Some(ar);
         (t1, t2)
     };
-    let common = e1.common.clone();
+    let source_common = e1.common.clone();
     let doc = s.doc_mut()?;
     doc.modify_entity(h1, |e| e.kind = line(k1, t1))?;
     doc.modify_entity(h2, |e| e.kind = line(k2, t2))?;
@@ -79,9 +95,10 @@ pub(crate) fn fillet_lines(
         _ => None,
     };
     if let Some(k) = extra {
-        let nh = doc.new_handle();
-        if let Some(st) = doc.space_mut(&space) {
-            st.push(Entity { handle: nh, common, kind: k });
+        let nh=doc.new_handle();
+        let common=normalize_join_bim_common(source_common,&e2.common,nh);
+        if let Some(st)=doc.space_mut(&space) {
+            st.push(Entity{handle:nh,common,kind:k});
         }
         return Ok(Some(nh));
     }
@@ -490,13 +507,16 @@ fn fillet_corner(s: &mut Session, h1: Handle, p1: Vec2, h2: Handle, p2: Vec2, r:
             Some(c.distances(dir(&l1, p1), dir(&l2, p2))?)
         }
     };
-    let made = fillet_lines(s, h1, p1, h2, p2, r, chamfer)?;
+    let made=fillet_lines(s,h1,p1,h2,p2,r,chamfer)?;
     if !trim {
-        let doc = s.doc_mut()?;
-        for (h, k) in [(h1, k1), (h2, k2)] {
-            if let Some(k) = k {
-                doc.modify_entity(h, |e| e.kind = k)?;
-            }
+        let doc=s.doc_mut()?;
+        for (h,k) in [(h1,k1),(h2,k2)] {
+            if let Some(k)=k { doc.modify_entity(h,|e|e.kind=k)?; }
+        }
+    } else {
+        let doc=s.doc_mut()?;
+        for h in [h1,h2] {
+            doc.modify_entity(h,|e|super::bump_tbt360_bim_revision(&mut e.common,h))?;
         }
     }
     Ok(made)
@@ -566,6 +586,9 @@ fn chamfer_polyline(s: &mut Session, h: Handle, cut: ChamferCut) -> Result<usize
     }
     let mut npl = pl.clone();
     npl.vertices = out;
-    s.doc_mut()?.modify_entity(h, |e| e.kind = EntityKind::LwPolyline(npl))?;
+    s.doc_mut()?.modify_entity(h,|e|{
+        e.kind=EntityKind::LwPolyline(npl);
+        if count>0 { super::bump_tbt360_bim_revision(&mut e.common,h); }
+    })?;
     Ok(count)
 }

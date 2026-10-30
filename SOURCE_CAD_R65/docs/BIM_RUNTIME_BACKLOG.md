@@ -80,11 +80,18 @@ Closed:
 - Linear/radial/ordinate/arc-length Dimension measurement uses renderer numeric measurement; angular dimensions are intentionally excluded from length totals.
 - Block-definition changes with stable INSERT handles are handled centrally by runtime revision invalidation.
 
+Closed / foundation complete:
+- QTO v4 now has structured source_path provenance with root_handle plus block_member / array_item steps.
+- Nested Block and associative Array source paths resolve to world-space geometry through the canonical QTO measurement engine.
+- Nested validation/refresh use the same geometry signature rules as top-level sources.
+- Nested auto-relink intentionally refuses guessing when a path breaks; no fake model-space handles are created.
+- Root INSERT remains the revision/scope anchor, so block-definition runtime invalidation makes nested QTO stale correctly.
+
 Remaining:
-- Nested block/array element provenance needs a stable path contract; do not fake nested members as model-space handles.
+- UI picking/creation of nested source_path records from rendered nested members.
 - XREF reload/remap source identity across a real external-file regression.
 - Multi-source derived entity provenance beyond the shared source-scope helper.
-- Auto-relink ambiguity hardening for imported/remapped files.
+- Optional explicit nested-path relink UX if a user chooses the replacement path manually.
 - Count remains existence/scope based, not coordinate based.
 
 ## BIM workspace remaining work

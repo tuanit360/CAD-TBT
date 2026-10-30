@@ -7,7 +7,10 @@ on:
       - feature/bim-collaboration-workspaces
     paths:
       - 'SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs'
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/bim_sync.rs'
       - 'SOURCE_CAD_R65/apps/cadcraft/src/main.rs'
+      - 'SOURCE_CAD_R65/crates/ui-egui/src/**'
+      - 'backend/**'
       - 'BIM_COLLABORATION_ARCHITECTURE.md'
       - '.github/workflows/bim-collaboration.yml'
 
@@ -31,3 +34,5 @@ jobs:
         run: cargo check --locked -p cadcraft
       - name: Test BIM collaboration model
         run: cargo test --locked -p cadcraft bim_collab::tests -- --nocapture
+      - name: Test BIM sync core
+        run: cargo test --locked -p cadcraft bim_sync::tests -- --nocapture

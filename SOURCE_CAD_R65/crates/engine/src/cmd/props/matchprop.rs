@@ -242,8 +242,11 @@ fn match_onto(s: &mut Session, src: Handle, targets: &[Handle], m: &MatchProps) 
         if locked || d.entity(*h).is_none() {
             continue;
         }
-        d.modify_entity(*h, |e| copy_props(&source, e, m))?;
-        n += 1;
+        d.modify_entity(*h,|e|{
+            copy_props(&source,e,m);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
+        })?;
+        n+=1;
     }
     Ok(n)
 }

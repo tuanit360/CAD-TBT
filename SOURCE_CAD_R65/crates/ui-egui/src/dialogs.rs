@@ -321,7 +321,7 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
 fn about(ctx: &egui::Context, open: &mut bool) {
     let t = Tokens::get();
     let tab_id = egui::Id::unique("about_tab");
-    egui::Window::new("Giới thiệu CAD 360 Việt Nam - TBT")
+    egui::Window::new(crate::tl!("About CAD 360 Viet Nam - TBT"))
         .id(egui::Id::unique("About CAD 360 Viet Nam - TBT"))
         .open(open)
         .default_size(vec2(640.0, 420.0))
@@ -343,9 +343,9 @@ fn about(ctx: &egui::Context, open: &mut bool) {
                 _ => {
                     ui.heading("CAD 360 Việt Nam - TBT");
                     ui.label(crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
-                    ui.label("Ứng dụng thiết kế và triển khai bản vẽ CAD native viết bằng Rust.");
+                    ui.label(crate::tl!("Native CAD design and drafting application written in Rust."));
                     ui.add_space(6.0);
-                    ui.label(RichText::new("Sản phẩm CAD 360 Việt Nam của TBT Việt Nam; phát triển trên nền mã nguồn mở CADCraft và giữ nguyên các nghĩa vụ giấy phép tương ứng.").color(t.text_dim));
+                    ui.label(RichText::new(crate::tl!("CAD 360 Viet Nam by TBT Viet Nam, developed on the open-source CADCraft foundation while preserving the applicable license obligations.")).color(t.text_dim));
                     ui.add_space(6.0);
                     ui.label(RichText::new(crate::tl!("MIT OR Apache-2.0. Not affiliated with Autodesk, Inc.")).small().color(t.text_faint));
                 }

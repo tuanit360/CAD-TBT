@@ -362,15 +362,13 @@ mod native {
     /// for one of them (0.6.3 left them out); CADCraft already tells the user which entity types
     /// a DWG doesn't keep (`not_saved`), so the rest of the drawing is written. Returns how many.
     fn drop_unwritable(doc: &mut acadrust::CadDocument) -> usize {
-        let version = doc.version;
         let unwritable: Vec<acadrust::Handle> = doc
             .entities()
             .filter_map(|e| match e {
-                acadrust::entities::EntityType::Unknown(u)
-                    if u.raw_dwg_data.is_none() || u.dwg_source_version.is_some_and(|v| v != version) || version == acadrust::DxfVersion::AC1009 =>
-                {
-                    Some(u.common.handle)
-                }
+                // DXF input has no authoritative raw DWG encoding for custom classes. Keeping an
+                // Unknown entity here can make acadrust reject the entire DWG; omit it and save the
+                // supported drawing instead, which is the documented bridge behavior.
+                acadrust::entities::EntityType::Unknown(u) => Some(u.common.handle),
                 _ => None,
             })
             .collect();
@@ -381,11 +379,7 @@ mod native {
             .objects
             .iter()
             .filter_map(|(h, o)| match o {
-                acadrust::objects::ObjectType::Unknown { raw_dwg_data, raw_dwg_version, .. }
-                    if raw_dwg_data.is_none() || raw_dwg_version.is_some_and(|v| v != version) || version == acadrust::DxfVersion::AC1009 =>
-                {
-                    Some(*h)
-                }
+                acadrust::objects::ObjectType::Unknown { .. } => Some(*h),
                 _ => None,
             })
             .collect();

@@ -104,7 +104,7 @@ fn open(s: &mut Session, path: &Path) {
 fn xclip_rectangular_boundary_is_stored_on_xref_reference() {
     let mut s = Session::new();
     *s.doc_mut().unwrap() = host_with(&[("site.dxf", false)]);
-    let h = s.doc().unwrap().model.first().unwrap().handle;
+    let h = s.doc().unwrap().model.iter().next().unwrap().handle;
     let r = s.execute("xclip", &json!({"handle": h.hex(), "points": [[-1, -2], [3, 4]]})).unwrap();
     assert_eq!(r["clipped"], true);
     let e = s.doc().unwrap().entity(h).unwrap();
@@ -180,7 +180,7 @@ fn xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_
 
     let host=dir.join("host.dxf");
     let mut host_doc=host_with(&[("site.dxf",false)]);
-    let root=host_doc.model.first().unwrap().handle;
+    let root=host_doc.model.iter().next().unwrap().handle;
     host_doc.modify_entity(root,|e|e.common=bim_common(root,3)).unwrap();
     save(&host_doc,&host);
 

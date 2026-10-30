@@ -348,10 +348,13 @@ impl Session {
         }
         // A command outside undo that changed the drawing (UNDO, which swapped it for an earlier
         // one) records no undo step, as in `execute`.
-        // Non-undoable commands must never record a new snapshot, even when the drawing
-        // pointer did not change (UNDO Mark/Control/BEgin) or changed due to U/REDO.
-        // Running after_command here can introduce a phantom history step.
-        if find_command(&run.id).is_some_and(|c| !c.undoable) {
+        // History commands must not run post-command reconciliation or add an undo step.
+        // In particular Mark/Control/BEgin may leave the drawing pointer unchanged.
+        // Preserve existing behavior for other non-undoable commands.
+        if matches!(run.id.as_str(), "u" | "undo" | "redo" | "mredo")
+            || (find_command(&run.id).is_some_and(|c| !c.undoable)
+                && self.state().is_ok_and(|st| !Arc::ptr_eq(&run.before, &st.doc)))
+        {
             self.pending_window = None;
             return;
         }

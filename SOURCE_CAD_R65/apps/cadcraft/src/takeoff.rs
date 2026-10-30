@@ -184,6 +184,28 @@ impl State {
         Ok(id)
     }
 
+    fn add_measurement_from_path(&mut self,app:&CadApp,path:SourcePath,kind:MeasureKind,active_scope:&Scope)->Result<u64,String> {
+        let root=cadcraft_doc::Handle::parse_hex(&path.root_handle).ok_or_else(||"QTO source_path root_handle không hợp lệ".to_string())?;
+        let current=if kind==MeasureKind::Count {
+            let doc=app.session.doc().map_err(|e|e.to_string())?;
+            let (entity,resolved_root)=resolve_source_path(doc,&path).ok_or_else(||"QTO source_path không tồn tại".to_string())?;
+            PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:entity.common.layer,source_handle:resolved_root}
+        } else {
+            measurements_for_path(app,&path).into_iter().find(|m|m.kind==kind).ok_or_else(||"Nested source không hỗ trợ loại phép đo này".to_string())?
+        };
+        let (scope,revision)=scope_from_entity_or_active(app,root,active_scope);
+        let signature=geometry_signature(&current);
+        let id=self.add_measurement_scoped(current.kind,current.points,current.raw_value,current.layer,&scope)?;
+        if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
+            record.source_handle=Some(root.hex());
+            record.source_path=Some(path.clone());
+            record.source_revision=revision;
+            record.source_geometry_signature=Some(signature.clone());
+        }
+        self.audit_change(id,"SOURCE_PATH",None,Some(format!("{}|{}",root.hex(),signature)));
+        Ok(id)
+    }
+
     fn relink_missing_source(&mut self, app:&CadApp, id:u64) -> Result<bool,String> {
         let index=self.records.iter().position(|r|r.id==id).ok_or_else(||"Không tìm thấy record QTO".to_string())?;
         let record=self.records[index].clone();
@@ -1277,6 +1299,133 @@ mod tests {
     use super::*;
     use cadcraft_doc::geom::PolyVertex;
     use cadcraft_doc::geom::Vec2;
+
+    fn block_member_fixture()->(cadcraft_doc::Drawing,cadcraft_doc::Handle,cadcraft_doc::Handle) {
+        let mut d=cadcraft_doc::Drawing::new_metric();
+        let member=cadcraft_doc::Handle(0x20);
+        let mut block=cadcraft_doc::Block::new("B");
+        block.base=cadcraft_geom::Vec3::ZERO;
+        block.entities.push(cadcraft_doc::Entity{
+            handle:member,
+            common:cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            kind:cadcraft_doc::EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(5.0,0.0,0.0)})
+        });
+        d.blocks.insert("B".into(),std::sync::Arc::new(block));
+        let root=d.add(&cadcraft_doc::Space::Model,cadcraft_doc::Common::default(),cadcraft_doc::EntityKind::Insert(cadcraft_doc::Insert{
+            block:"B".into(),insert:cadcraft_geom::Vec3::new(10.0,20.0,0.0),scale:cadcraft_geom::Vec3::new(1.0,1.0,1.0),rotation:0.0,
+            attribs:Vec::new(),cols:1,rows:1,col_spacing:0.0,row_spacing:0.0
+        })).unwrap();
+        (d,root,member)
+    }
+
+    #[test]
+    fn qto_v4_source_path_roundtrip_preserves_structured_provenance() {
+        let mut state=State::default();
+        let id=state.add_measurement(MeasureKind::Length,vec![[10.0,20.0],[15.0,20.0]],5.0,"A-WALL".into()).unwrap();
+        let path=SourcePath{root_handle:"2A".into(),steps:vec![SourcePathStep::BlockMember{block:"B".into(),member_handle:"20".into()}]};
+        state.records[0].source_handle=Some("2A".into());
+        state.records[0].source_path=Some(path.clone());
+        let json=state.to_json();
+        assert_eq!(json["version"],serde_json::json!(4));
+        let mut reopened=State::default();
+        reopened.load_json(&json).unwrap();
+        assert_eq!(reopened.records[0].source_path.as_ref(),Some(&path));
+        assert_eq!(reopened.records[0].id,id);
+    }
+
+    #[test]
+    fn qto_v4_source_path_rejects_invalid_member_handle() {
+        let bad=serde_json::json!({
+            "version":4,"drawing_distance":0.0,"real_distance_m":0.0,
+            "records":[{"id":1,"kind":"count","points":[],"raw_value":1.0,"layer":"A","status":"review",
+                "source_handle":"2A","source_path":{"root_handle":"2A","steps":[{"type":"block_member","block":"B","member_handle":"NOT_HEX"}]}}],
+            "audit":[]
+        });
+        assert!(State::default().load_json(&bad).is_err());
+    }
+
+    #[test]
+    fn nested_block_source_path_resolves_world_geometry() {
+        let (d,root,member)=block_member_fixture();
+        let path=SourcePath{root_handle:root.hex(),steps:vec![SourcePathStep::BlockMember{block:"B".into(),member_handle:member.hex()}]};
+        let (entity,resolved_root)=resolve_source_path(&d,&path).unwrap();
+        assert_eq!(resolved_root,root);
+        let EntityKind::Line(line)=entity.kind else{panic!("expected line")};
+        assert!((line.a.x-10.0).abs()<1e-12&&(line.a.y-20.0).abs()<1e-12);
+        assert!((line.b.x-15.0).abs()<1e-12&&(line.b.y-20.0).abs()<1e-12);
+    }
+
+    #[test]
+    fn associative_array_source_path_resolves_distinct_item_world_geometry() {
+        use cadcraft_doc::{ArrayKind,ArrayParams,RectArray};
+        let mut d=cadcraft_doc::Drawing::new_metric();
+        let member=cadcraft_doc::Handle(0x20);
+        let mut source=cadcraft_doc::Block::new("SRC");
+        source.entities.push(cadcraft_doc::Entity{
+            handle:member,common:cadcraft_doc::Common{layer:"A".into(),..Default::default()},
+            kind:cadcraft_doc::EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(2.0,0.0,0.0)})
+        });
+        d.blocks.insert("SRC".into(),std::sync::Arc::new(source));
+
+        let params=ArrayParams{
+            source:"SRC".into(),
+            kind:ArrayKind::Rect(RectArray{cols:2,rows:1,col_spacing:10.0,row_spacing:0.0,axis_angle:0.0,row_elevation:0.0}),
+            levels:1,level_spacing:0.0,replaced:Vec::new(),suppressed:Vec::new(),editing:None
+        };
+        let mut arr=cadcraft_doc::Block::new("ARR");
+        arr.array=Some(params);
+        for (idx,x) in [0.0,10.0].into_iter().enumerate() {
+            arr.entities.push(cadcraft_doc::Entity{
+                handle:cadcraft_doc::Handle(0x30+idx as u64),common:cadcraft_doc::Common::default(),
+                kind:cadcraft_doc::EntityKind::Insert(cadcraft_doc::Insert{
+                    block:"SRC".into(),insert:cadcraft_geom::Vec3::new(x,0.0,0.0),scale:cadcraft_geom::Vec3::new(1.0,1.0,1.0),rotation:0.0,
+                    attribs:Vec::new(),cols:1,rows:1,col_spacing:0.0,row_spacing:0.0
+                })
+            });
+        }
+        d.blocks.insert("ARR".into(),std::sync::Arc::new(arr));
+        let root=d.add(&cadcraft_doc::Space::Model,cadcraft_doc::Common::default(),cadcraft_doc::EntityKind::Insert(cadcraft_doc::Insert{
+            block:"ARR".into(),insert:cadcraft_geom::Vec3::new(100.0,5.0,0.0),scale:cadcraft_geom::Vec3::new(1.0,1.0,1.0),rotation:0.0,
+            attribs:Vec::new(),cols:1,rows:1,col_spacing:0.0,row_spacing:0.0
+        })).unwrap();
+
+        let path=SourcePath{root_handle:root.hex(),steps:vec![SourcePathStep::ArrayItem{i:1,j:0,level:0,member_handle:member.hex()}]};
+        let (entity,_)=resolve_source_path(&d,&path).unwrap();
+        let EntityKind::Line(line)=entity.kind else{panic!("expected line")};
+        assert!((line.a.x-110.0).abs()<1e-12&&(line.a.y-5.0).abs()<1e-12);
+        assert!((line.b.x-112.0).abs()<1e-12&&(line.b.y-5.0).abs()<1e-12);
+    }
+
+    #[test]
+    fn associative_array_suppressed_item_path_is_invalid() {
+        use cadcraft_doc::{ArrayItemRef,ArrayKind,ArrayParams,RectArray};
+        let mut d=cadcraft_doc::Drawing::new_metric();
+        let member=cadcraft_doc::Handle(0x20);
+        let mut source=cadcraft_doc::Block::new("SRC");
+        source.entities.push(cadcraft_doc::Entity{handle:member,common:Default::default(),kind:cadcraft_doc::EntityKind::Point(cadcraft_doc::Point{p:cadcraft_geom::Vec3::ZERO})});
+        d.blocks.insert("SRC".into(),std::sync::Arc::new(source));
+        let params=ArrayParams{
+            source:"SRC".into(),
+            kind:ArrayKind::Rect(RectArray{cols:2,rows:1,col_spacing:10.0,row_spacing:0.0,axis_angle:0.0,row_elevation:0.0}),
+            levels:1,level_spacing:0.0,replaced:Vec::new(),suppressed:vec![ArrayItemRef{i:1,j:0,level:0}],editing:None
+        };
+        let mut arr=cadcraft_doc::Block::new("ARR");
+        arr.array=Some(params);
+        arr.entities.push(cadcraft_doc::Entity{
+            handle:cadcraft_doc::Handle(0x30),common:Default::default(),
+            kind:cadcraft_doc::EntityKind::Insert(cadcraft_doc::Insert{
+                block:"SRC".into(),insert:cadcraft_geom::Vec3::ZERO,scale:cadcraft_geom::Vec3::new(1.0,1.0,1.0),rotation:0.0,
+                attribs:Vec::new(),cols:1,rows:1,col_spacing:0.0,row_spacing:0.0
+            })
+        });
+        d.blocks.insert("ARR".into(),std::sync::Arc::new(arr));
+        let root=d.add(&cadcraft_doc::Space::Model,Default::default(),cadcraft_doc::EntityKind::Insert(cadcraft_doc::Insert{
+            block:"ARR".into(),insert:cadcraft_geom::Vec3::ZERO,scale:cadcraft_geom::Vec3::new(1.0,1.0,1.0),rotation:0.0,
+            attribs:Vec::new(),cols:1,rows:1,col_spacing:0.0,row_spacing:0.0
+        })).unwrap();
+        let path=SourcePath{root_handle:root.hex(),steps:vec![SourcePathStep::ArrayItem{i:1,j:0,level:0,member_handle:member.hex()}]};
+        assert!(resolve_source_path(&d,&path).is_none());
+    }
 
     #[test]
     fn uncalibrated_qto_project_can_save_and_reopen() {

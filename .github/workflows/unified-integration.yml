@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   unified:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
@@ -27,7 +27,7 @@ jobs:
         with:
           workspaces: SOURCE_CAD_R65
       - name: Verify locked dependency graph
-        run: cargo metadata --locked --no-deps --format-version 1 > $null
+        run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
       - name: Check full workspace
         run: cargo check --workspace --locked
       - name: Test full workspace

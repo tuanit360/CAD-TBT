@@ -637,22 +637,10 @@ pub(super) fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: boo
             w.s(1, &t.text);
             w.p(11, t.dir);
         }
-        // Preserve unknown entities, including PDFUNDERLAY metadata, instead of silently dropping
-        // them. Handles and owner/subclass groups are regenerated; original raw handles are skipped.
-        EntityKind::Unknown(u) => {
-            w.s(0, &u.dxf_type);
-            common(w, e, owner, paper, "");
-            for t in &u.tags {
-                if matches!(t.code, 0 | 5 | 330 | 100) { continue; }
-                if (10..=59).contains(&t.code) {
-                    w.f(t.code, t.value.parse::<f64>().unwrap_or(0.0));
-                } else if (60..=99).contains(&t.code) || (280..=289).contains(&t.code) {
-                    w.i(t.code, t.value.parse::<i64>().unwrap_or(0));
-                } else {
-                    w.s(t.code, &t.value);
-                }
-            }
-        }
+        // Unknown/custom entities are intentionally emitted by dxf_raw::finish, which preserves
+        // their original groups, remaps handles/owners and restores foreign xdata/dictionaries.
+        // Writing them here as well duplicates the record and leaves stale raw pointers.
+        EntityKind::Unknown(_) => {}
     }
 }
 

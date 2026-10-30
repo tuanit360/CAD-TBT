@@ -97,9 +97,10 @@ fn add_leaders(s: &mut Session, h: Handle, pts: &[Vec2]) -> Result<()> {
     if locked(s, h) {
         return Err(bad("mleaderedit", "the multileader is on a locked layer"));
     }
-    s.doc_mut()?.modify_entity(h, |e| {
-        if let EntityKind::MLeader(m) = &mut e.kind {
-            m.leaders.extend(pts.iter().map(|p| vec![v3(*p)]));
+    s.doc_mut()?.modify_entity(h,|e|{
+        if let EntityKind::MLeader(m)=&mut e.kind {
+            m.leaders.extend(pts.iter().map(|p|vec![v3(*p)]));
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
         }
     })?;
     Ok(())
@@ -113,16 +114,15 @@ fn remove_leaders(s: &mut Session, h: Handle, idx: &[usize]) -> Result<()> {
     if let Some(i) = idx.iter().find(|i| **i >= m.leaders.len()) {
         return Err(bad("mleaderedit", format!("no leader {i} (the multileader has {})", m.leaders.len())));
     }
-    s.doc_mut()?.modify_entity(h, |e| {
-        if let EntityKind::MLeader(m) = &mut e.kind {
-            let mut sorted: Vec<usize> = idx.to_vec();
+    s.doc_mut()?.modify_entity(h,|e|{
+        if let EntityKind::MLeader(m)=&mut e.kind {
+            let mut sorted:Vec<usize>=idx.to_vec();
             sorted.sort_unstable();
             sorted.dedup();
             for i in sorted.into_iter().rev() {
-                if i < m.leaders.len() {
-                    m.leaders.remove(i);
-                }
+                if i<m.leaders.len() { m.leaders.remove(i); }
             }
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
         }
     })?;
     Ok(())

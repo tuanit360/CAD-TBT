@@ -144,3 +144,23 @@ CREATE TABLE IF NOT EXISTS local_auth_cache (
     authorization_expires_at TEXT NULL,
     last_online_login_at TEXT NULL
 );
+
+
+CREATE TABLE IF NOT EXISTS local_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    sequence_no INTEGER NOT NULL,
+    account_id TEXT NOT NULL,
+    device_id TEXT NULL,
+    action TEXT NOT NULL,
+    floor_id TEXT NULL,
+    discipline TEXT NULL,
+    source_handle TEXT NULL,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    synced INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    UNIQUE(project_id, sequence_no),
+    FOREIGN KEY(project_id) REFERENCES local_project(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_local_audit_unsynced ON local_audit_log(project_id, synced, sequence_no);

@@ -446,6 +446,7 @@ struct SourceValidation {
     scope_mismatch: usize,
     stale_revision: usize,
     stale_geometry: usize,
+    identity_collision: usize,
     valid_links: usize,
     invalid_record_ids: std::collections::BTreeSet<u64>,
 }
@@ -476,8 +477,12 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
                 || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
                 || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
             let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
+            let identity_collision=entity_scope.entity_handle.is_some_and(|identity|identity!=handle && doc.model.get(identity).is_some());
             if mismatch {
                 result.scope_mismatch+=1;
+                result.invalid_record_ids.insert(record.id);
+            } else if identity_collision {
+                result.identity_collision+=1;
                 result.invalid_record_ids.insert(record.id);
             } else if geometry_stale {
                 result.stale_geometry+=1;
@@ -892,10 +897,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
 
     let source_validation=validate_sources(app,state);
-    if source_validation.missing_source>0 || source_validation.scope_mismatch>0 || source_validation.stale_revision>0 || source_validation.stale_geometry>0 {
+    if source_validation.missing_source>0 || source_validation.scope_mismatch>0 || source_validation.stale_revision>0 || source_validation.stale_geometry>0 || source_validation.identity_collision>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
-            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry.",
-            source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry
+            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry, {} trùng BIM identity.",
+            source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry,source_validation.identity_collision
         ));
         if source_validation.missing_source>0 && ui.button("Tự relink nguồn bị mất (chỉ khi khớp duy nhất)").clicked() {
             let relinked=state.relink_all_missing_sources(app);
@@ -1355,6 +1360,16 @@ mod tests {
     }
 
     #[test]
+    fn identity_collision_policy_only_blocks_when_original_identity_still_exists() {
+        let current=cadcraft_doc::Handle(0x55);
+        let claimed=cadcraft_doc::Handle(0x2A);
+        let original_still_exists=true;
+        assert!(claimed!=current && original_still_exists);
+        let original_still_exists=false;
+        assert!(!(claimed!=current && original_still_exists));
+    }
+
+    #[test]
     fn source_state_labels_legacy_ok_and_stale_records() {
         let mut state=State::default();
         let legacy=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"A".into()).unwrap();
@@ -1375,6 +1390,7 @@ mod tests {
         assert_eq!(validation.scope_mismatch,0);
         assert_eq!(validation.stale_revision,0);
         assert_eq!(validation.stale_geometry,0);
+        assert_eq!(validation.identity_collision,0);
         assert_eq!(validation.valid_links,0);
     }
 

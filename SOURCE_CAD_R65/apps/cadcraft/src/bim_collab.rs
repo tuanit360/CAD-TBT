@@ -184,9 +184,14 @@ impl State {
 
     pub fn world_position(&self, floor_id: u64, local_x_m: f64, local_y_m: f64, local_z_m: f64) -> Option<[f64; 3]> {
         let floor = self.floors.iter().find(|f| f.id == floor_id)?;
+        let angle = self.coordinates.rotation_deg.to_radians();
+        let cos = angle.cos();
+        let sin = angle.sin();
+        let rotated_x = local_x_m * cos - local_y_m * sin;
+        let rotated_y = local_x_m * sin + local_y_m * cos;
         Some([
-            self.coordinates.origin_x_m + local_x_m,
-            self.coordinates.origin_y_m + local_y_m,
+            self.coordinates.origin_x_m + rotated_x,
+            self.coordinates.origin_y_m + rotated_y,
             self.coordinates.origin_z_m + floor.world_z(local_z_m),
         ])
     }
@@ -202,7 +207,13 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             ui.selectable_value(&mut state.connection, mode, mode.label());
         }
         ui.separator();
-        ui.label(format!("Tài khoản: {}", state.current_account_id));
+        egui::ComboBox::from_id_salt("bim_current_account")
+            .selected_text(state.users.iter().find(|u| u.account_id == state.current_account_id).map(|u| u.display_name.as_str()).unwrap_or("Chưa đăng nhập"))
+            .show_ui(ui, |ui| {
+                for user in &state.users {
+                    ui.selectable_value(&mut state.current_account_id, user.account_id.clone(), &user.display_name);
+                }
+            });
         if state.connection == ConnectionMode::Offline {
             ui.label(format!("Thay đổi cục bộ chưa đồng bộ: {}", state.dirty_local_changes));
         }
@@ -277,12 +288,12 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
     ui.collapsing("Quyền tài khoản", |ui| {
         egui::Grid::new("bim_access").striped(true).show(ui, |ui| {
             ui.strong("Tài khoản"); ui.strong("Bộ môn"); ui.strong("Sửa"); ui.strong("Xem bộ môn khác"); ui.strong("Xem tầng khác"); ui.end_row();
-            for user in &state.users {
+            for user in &mut state.users {
                 ui.label(&user.display_name);
                 ui.label(user.discipline.label());
-                ui.label(if user.can_edit { "Có" } else { "Không" });
-                ui.label(if user.can_view_other_disciplines { "Có" } else { "Không" });
-                ui.label(if user.can_view_other_floors { "Có" } else { "Không" });
+                ui.checkbox(&mut user.can_edit, "");
+                ui.checkbox(&mut user.can_view_other_disciplines, "");
+                ui.checkbox(&mut user.can_view_other_floors, "");
                 ui.end_row();
             }
         });
@@ -302,6 +313,15 @@ mod tests {
     fn floor_elevation_maps_local_to_world_z() {
         let state = State::default();
         assert_eq!(state.world_position(2, 10.0, 20.0, 0.5), Some([10.0, 20.0, 4.1]));
+    }
+
+    #[test]
+    fn project_rotation_is_applied_to_world_coordinates() {
+        let mut state = State::default();
+        state.coordinates.rotation_deg = 90.0;
+        let p = state.world_position(1, 10.0, 0.0, 0.0).unwrap();
+        assert!(p[0].abs() < 1e-10);
+        assert!((p[1] - 10.0).abs() < 1e-10);
     }
 
     #[test]

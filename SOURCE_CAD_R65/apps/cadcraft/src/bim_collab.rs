@@ -32,6 +32,18 @@ impl Discipline {
             Self::Coordination => "Phối hợp",
         }
     }
+
+    fn from_label(value: &str) -> Option<Self> {
+        match value {
+            "Kiến trúc" | "ARCH" => Some(Self::Architecture),
+            "Kết cấu" | "STRUCT" => Some(Self::Structure),
+            "Điện" | "ELEC" => Some(Self::Electrical),
+            "Nước" | "PLUMB" => Some(Self::Plumbing),
+            "Điều hòa/Thông gió" | "HVAC" => Some(Self::Hvac),
+            "Phối hợp" | "COORD" => Some(Self::Coordination),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -671,6 +683,21 @@ impl State {
         let floors = self.floors.iter().map(|f| serde_json::json!({
             "id": f.id, "name": f.name, "elevation_m": f.elevation_m, "height_m": f.height_m
         })).collect::<Vec<_>>();
+        let views = self.views.iter().map(|v| serde_json::json!({
+            "floor_id": v.floor_id,
+            "discipline": v.discipline.label(),
+            "owner_account_id": v.owner_account_id,
+            "overlay_opacity": v.overlay_opacity,
+            "show_other_users": v.show_other_users,
+            "mode": v.mode.label()
+        })).collect::<Vec<_>>();
+        let access_rules = self.access_rules.iter().map(|r| serde_json::json!({
+            "account_id": r.account_id,
+            "floor_id": r.floor_id,
+            "discipline": r.discipline.map(Discipline::label),
+            "can_view": r.can_view,
+            "can_edit": r.can_edit
+        })).collect::<Vec<_>>();
         let progress = self.progress.iter().map(|p| serde_json::json!({
             "floor_id": p.floor_id,
             "discipline": p.discipline.label(),
@@ -678,8 +705,18 @@ impl State {
             "status": p.status.label(),
             "updated_by": p.updated_by
         })).collect::<Vec<_>>();
+        let issues = self.issues.iter().map(|i| serde_json::json!({
+            "id": i.id,
+            "floor_id": i.floor_id,
+            "source_discipline": i.source_discipline.label(),
+            "target_discipline": i.target_discipline.label(),
+            "handle": i.handle.map(|h| h.hex()),
+            "assigned_to": i.assigned_to,
+            "description": i.description,
+            "status": i.status.label()
+        })).collect::<Vec<_>>();
         serde_json::json!({
-            "version": 1,
+            "version": 2,
             "project_id": self.project_id,
             "project_name": self.project_name,
             "coordinates": {
@@ -688,10 +725,14 @@ impl State {
                 "origin_z_m": self.coordinates.origin_z_m,
                 "rotation_deg": self.coordinates.rotation_deg
             },
+            "layout": self.layout.slots(),
             "floors": floors,
+            "views": views,
+            "access_rules": access_rules,
             "active_floor_id": self.active_floor_id,
             "active_discipline": self.active_discipline.label(),
-            "progress": progress
+            "progress": progress,
+            "issues": issues
         })
     }
 
@@ -713,11 +754,84 @@ impl State {
                 let height_m = item.get("height_m").and_then(serde_json::Value::as_f64).unwrap_or(3.6);
                 floors.push(Floor { id, name, elevation_m, height_m });
             }
-            if !floors.is_empty() {
-                self.floors = floors;
+            if !floors.is_empty() { self.floors = floors; }
+        }
+        self.layout = match value.get("layout").and_then(serde_json::Value::as_u64).unwrap_or(2) {
+            1 => ViewLayout::One,
+            3 => ViewLayout::Three,
+            4 => ViewLayout::Four,
+            _ => ViewLayout::Two,
+        };
+        if let Some(items) = value.get("views").and_then(serde_json::Value::as_array) {
+            let mut views = Vec::new();
+            for item in items.iter().take(4) {
+                let floor_id = item.get("floor_id").and_then(serde_json::Value::as_u64).unwrap_or(1);
+                let discipline = item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label).unwrap_or(Discipline::Architecture);
+                let owner_account_id = item.get("owner_account_id").and_then(serde_json::Value::as_str).map(str::to_string);
+                let overlay_opacity = item.get("overlay_opacity").and_then(serde_json::Value::as_f64).unwrap_or(0.35).clamp(0.05, 1.0) as f32;
+                let show_other_users = item.get("show_other_users").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                let mode = if item.get("mode").and_then(serde_json::Value::as_str) == Some("Chỉnh sửa") { ViewMode::Edit } else { ViewMode::Reference };
+                views.push(ViewSlot { floor_id, discipline, owner_account_id, overlay_opacity, show_other_users, mode });
+            }
+            if !views.is_empty() {
+                while views.len() < 4 {
+                    views.push(ViewSlot { floor_id: 1, discipline: Discipline::Coordination, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true, mode: ViewMode::Reference });
+                }
+                self.views = views;
             }
         }
+        if let Some(items) = value.get("access_rules").and_then(serde_json::Value::as_array) {
+            self.access_rules = items.iter().filter_map(|item| {
+                Some(AccessRule {
+                    account_id: item.get("account_id")?.as_str()?.to_string(),
+                    floor_id: item.get("floor_id").and_then(serde_json::Value::as_u64),
+                    discipline: item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label),
+                    can_view: item.get("can_view").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    can_edit: item.get("can_edit").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                })
+            }).collect();
+        }
         self.active_floor_id = value.get("active_floor_id").and_then(serde_json::Value::as_u64).unwrap_or_else(|| self.floors.first().map(|f| f.id).unwrap_or(1));
+        self.active_discipline = value.get("active_discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label).unwrap_or(Discipline::Architecture);
+        if let Some(items) = value.get("progress").and_then(serde_json::Value::as_array) {
+            self.progress = items.iter().filter_map(|item| {
+                let discipline = item.get("discipline")?.as_str().and_then(Discipline::from_label)?;
+                let percent = item.get("percent").and_then(serde_json::Value::as_u64).unwrap_or(0).min(100) as u8;
+                let status = match item.get("status").and_then(serde_json::Value::as_str) {
+                    Some("Đang thực hiện") => ScopeStatus::InProgress,
+                    Some("Đang kiểm tra") => ScopeStatus::Review,
+                    Some("Hoàn thành") => ScopeStatus::Complete,
+                    _ => ScopeStatus::NotStarted,
+                };
+                Some(ScopeProgress {
+                    floor_id: item.get("floor_id")?.as_u64()?,
+                    discipline,
+                    percent,
+                    status,
+                    updated_by: item.get("updated_by").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                })
+            }).collect();
+        }
+        if let Some(items) = value.get("issues").and_then(serde_json::Value::as_array) {
+            self.issues = items.iter().filter_map(|item| {
+                let handle = item.get("handle").and_then(serde_json::Value::as_str).and_then(cadcraft_doc::Handle::parse_hex);
+                Some(CoordinationIssue {
+                    id: item.get("id")?.as_u64()?,
+                    floor_id: item.get("floor_id")?.as_u64()?,
+                    source_discipline: item.get("source_discipline")?.as_str().and_then(Discipline::from_label)?,
+                    target_discipline: item.get("target_discipline")?.as_str().and_then(Discipline::from_label)?,
+                    handle,
+                    assigned_to: item.get("assigned_to").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    status: match item.get("status").and_then(serde_json::Value::as_str) {
+                        Some("Đang xử lý") => IssueStatus::InProgress,
+                        Some("Đã xử lý") => IssueStatus::Resolved,
+                        _ => IssueStatus::Open,
+                    },
+                })
+            }).collect();
+            self.next_issue_id = self.issues.iter().map(|i| i.id).max().unwrap_or(0) + 1;
+        }
         Ok(())
     }
 
@@ -1334,6 +1448,23 @@ mod tests {
         state.sync_pending_changes();
         assert_eq!(state.conflicts.len(), 1);
         assert!(!state.pending_changes[1].synced);
+    }
+
+    #[test]
+    fn bim_workspace_snapshot_restores_views_permissions_progress_and_issues() {
+        let mut state = State::default();
+        state.views[1].floor_id = 2;
+        state.views[1].overlay_opacity = 0.22;
+        state.create_issue_from_selection(Some(cadcraft_doc::Handle(15)), Discipline::Structure);
+        let json = state.snapshot_json();
+        let mut restored = State::default();
+        restored.load_snapshot_json(&json).unwrap();
+        assert_eq!(restored.views[1].floor_id, 2);
+        assert!((restored.views[1].overlay_opacity - 0.22).abs() < 1e-6);
+        assert_eq!(restored.access_rules.len(), state.access_rules.len());
+        assert_eq!(restored.progress.len(), state.progress.len());
+        assert_eq!(restored.issues.len(), 1);
+        assert_eq!(restored.issues[0].handle, Some(cadcraft_doc::Handle(15)));
     }
 
     #[test]

@@ -50,6 +50,7 @@ struct MeasurementRecord {
     note: String,
     status: MeasureStatus,
     scope: Scope,
+    source_handle: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -121,7 +122,7 @@ impl State {
         self.next_record_id += 1;
         let record = MeasurementRecord {
             id, kind, points, raw_value, layer, work_group: String::new(), work_code: String::new(),
-            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(),
+            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None,
         };
         self.records.push(record.clone());
         self.audit_change(id, "CREATE", None, Some(format!("{:?}:{:.6}", record.kind, record.raw_value)));
@@ -137,6 +138,15 @@ impl State {
             record.scope=scope.clone();
         }
         self.audit_change(id,"SCOPE",None,Some(format!("floor={:?};discipline={:?};owner={:?}",scope.floor_id,scope.discipline,scope.owner_account_id)));
+        Ok(id)
+    }
+
+    fn add_measurement_from_entity(&mut self, measurement: PendingMeasurement, scope: &Scope) -> Result<u64, String> {
+        let id=self.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,scope)?;
+        if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
+            record.source_handle=Some(measurement.source_handle.hex());
+        }
+        self.audit_change(id,"SOURCE_HANDLE",None,self.records.iter().find(|r|r.id==id).and_then(|r|r.source_handle.clone()));
         Ok(id)
     }
 
@@ -202,7 +212,8 @@ impl State {
                 "floor_id": record.scope.floor_id,
                 "discipline": record.scope.discipline,
                 "owner_account_id": record.scope.owner_account_id
-            }
+            },
+            "source_handle": record.source_handle
         })
     }
 
@@ -257,6 +268,7 @@ impl State {
             if floor_id==Some(0) || discipline.as_deref().is_some_and(|v|v.trim().is_empty()) || owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) {
                 return Err("Measurement BIM scope không hợp lệ".into());
             }
+            let source_handle=item.get("source_handle").and_then(serde_json::Value::as_str).map(str::to_string);
             records.push(MeasurementRecord {
                 id, kind, points, raw_value,
                 layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
@@ -266,6 +278,7 @@ impl State {
                 note: item.get("note").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
                 status,
                 scope: Scope{floor_id,discipline,owner_account_id},
+                source_handle,
             });
         }
         let mut audit = Vec::new();
@@ -629,14 +642,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             let measurements=selected_measurements(app);
             for measurement in measurements {
                 let entity_scope=scope_from_entity_or_active(app,measurement.source_handle,scope);
-                let _=state.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,&entity_scope);
+                let _=state.add_measurement_from_entity(measurement,&entity_scope);
             }
         }
         if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
             let measurements=selected_count_measurements(app);
             for measurement in measurements {
                 let entity_scope=scope_from_entity_or_active(app,measurement.source_handle,scope);
-                let _=state.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,&entity_scope);
+                let _=state.add_measurement_from_entity(measurement,&entity_scope);
             }
         }
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));
@@ -696,7 +709,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let mut action: Option<(u64, u8)> = None;
         egui::ScrollArea::horizontal().show(ui, |ui| {
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
-                for h in ["ID","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
+                for h in ["ID","Handle nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
                     let value = match record.kind {
@@ -706,6 +719,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     };
                     let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "lần" };
                     ui.label(record.id.to_string());
+                    ui.label(record.source_handle.as_deref().unwrap_or("-"));
                     ui.label(record.scope.floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
                     ui.label(record.scope.discipline.as_deref().unwrap_or("-"));
                     ui.label(record.scope.owner_account_id.as_deref().unwrap_or("-"));
@@ -839,7 +853,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.ctx().copy_text(csv);
         }
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
-            let mut csv = String::from("id,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
+            let mut csv = String::from("id,source_handle,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
             for record in &state.records {
                 let converted = match record.kind {
                     MeasureKind::Area => record.raw_value * af,
@@ -848,8 +862,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 };
                 let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
                 let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
-                csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
+                csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
                     record.id,
+                    esc(record.source_handle.as_deref().unwrap_or("")),
                     record.scope.floor_id.map(|v|v.to_string()).unwrap_or_default(),
                     esc(record.scope.discipline.as_deref().unwrap_or("")),
                     esc(record.scope.owner_account_id.as_deref().unwrap_or("")),
@@ -989,6 +1004,21 @@ mod tests {
         let mut state=State::default();
         let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
+    }
+
+    #[test]
+    fn qto_v3_roundtrip_preserves_source_handle() {
+        let mut state=State::default();
+        let scope=Scope{floor_id:Some(2),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
+        let measurement=PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:"DEVICE".into(),source_handle:cadcraft_doc::Handle(0x2A)};
+        let id=state.add_measurement_from_entity(measurement,&scope).unwrap();
+        assert_eq!(state.records[0].source_handle.as_deref(),Some("2A"));
+        let json=state.to_json();
+        let mut reopened=State::default();
+        reopened.load_json(&json).unwrap();
+        assert_eq!(reopened.records[0].source_handle.as_deref(),Some("2A"));
+        assert_eq!(reopened.records[0].scope.discipline.as_deref(),Some("ELEC"));
+        assert_eq!(id,1);
     }
 
     #[test]

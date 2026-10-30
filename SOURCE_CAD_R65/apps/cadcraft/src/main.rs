@@ -269,15 +269,6 @@ fn control_flag(current: Option<u16>, value: Option<String>) -> Option<u16> {
 fn main() -> eframe::Result {
     // First, so every start-up record is captured; see `logging`.
     let logger = logging::install();
-    // The update helper relaunches this binary after a self-update; it runs and exits here.
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Some(done) = craft_update::self_update::finish(&craft_update::suite::CADCRAFT, &std::env::args_os().skip(1).collect::<Vec<_>>()) {
-        if let Err(e) = done {
-            eprintln!("CAD 2D - TBT 360 update helper failed: {e}");
-            std::process::exit(1);
-        }
-        return Ok(());
-    }
     // lossy, so a value that is not Unicode is reported like any other bad port instead of ignored
     let mut control_port =
         control_port_from("CADCRAFT_CONTROL_PORT", std::env::var_os("CADCRAFT_CONTROL_PORT").map(|p| p.to_string_lossy().into_owned()));

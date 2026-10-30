@@ -34,3 +34,9 @@ jobs:
         run: cargo check --locked -p cadcraft
       - name: Test all BIM modules
         run: cargo test --locked -p cadcraft bim_ -- --nocapture
+      - name: Integration full workspace check
+        if: github.ref == 'refs/heads/integration/bim-collaboration'
+        run: cargo check --workspace --locked
+      - name: Integration full workspace regression
+        if: github.ref == 'refs/heads/integration/bim-collaboration'
+        run: cargo test --workspace --locked --no-fail-fast

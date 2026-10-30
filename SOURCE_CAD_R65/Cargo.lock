@@ -573,7 +573,6 @@ dependencies = [
  "cadcraft-ui-egui",
  "chrono",
  "craft-ui",
- "craft-update",
  "craft-window",
  "eframe",
  "egui",
@@ -742,7 +741,6 @@ dependencies = [
  "cadcraft-render",
  "chrono",
  "craft-ui",
- "craft-update",
  "craft-window",
  "egui",
  "egui-wgpu",
@@ -1064,31 +1062,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
-]
-
-[[package]]
-name = "craft-update"
-version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
-dependencies = [
- "chrono",
- "dunce",
- "egui",
- "flate2",
- "getrandom 0.3.4",
- "log",
- "plist",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tempfile",
- "ureq",
- "verifysign",
- "winreg",
- "winsafe",
- "zip",
 ]
 
 [[package]]

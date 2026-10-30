@@ -97,6 +97,7 @@ impl Interactive for TanCircleM {
                     self.picks.push((h,o,p));
                     if !self.radius_mode && self.picks.len() == 3 {
                         let (Some(a),Some(b),Some(third))=(self.picks.first(),self.picks.get(1),self.picks.get(2)) else { return Ok(Step::Cancel); };
+                        let (a,b,third)=(*a,*b,*third);
                         let solved=curves::ttt([(a.1,a.2),(b.1,b.2),(third.1,third.2)]).ok_or_else(||{
                             self.picks.clear();
                             other("Circle does not exist.")

@@ -111,6 +111,11 @@ fn reconcile_drawing(before:&Drawing,after:&mut Drawing)->usize {
     changed
 }
 
+pub(crate) fn normalize_drawing(d:&mut Drawing)->usize {
+    let empty=Drawing::new_imperial();
+    reconcile_drawing(&empty,d)
+}
+
 /// Runtime safety net after every command, after constraints/associativity have settled.
 ///
 /// Rules:

@@ -388,6 +388,8 @@ pub struct State {
     pub project_id: String,
     pub project_name: String,
     remote_revisions: Vec<(cadcraft_doc::Handle, u64)>,
+    work_session_active: bool,
+    work_session_known_handles: Vec<cadcraft_doc::Handle>,
 }
 
 impl Default for State {
@@ -448,11 +450,53 @@ impl Default for State {
             project_id: "project-local-001".into(),
             project_name: "Dự án BIM".into(),
             remote_revisions: Vec::new(),
+            work_session_active: false,
+            work_session_known_handles: Vec::new(),
         }
     }
 }
 
 impl State {
+    fn start_work_session(&mut self, app: &cadcraft_ui_egui::CadApp) {
+        self.work_session_known_handles = app.session.doc().map(|d| d.model.handles()).unwrap_or_default();
+        self.work_session_active = true;
+    }
+
+    fn stop_work_session(&mut self) {
+        self.work_session_active = false;
+        self.work_session_known_handles.clear();
+    }
+
+    fn tag_new_entities_in_work_session(&mut self, app: &mut cadcraft_ui_egui::CadApp) {
+        if !self.work_session_active || self.auth.status == AuthStatus::SignedOut {
+            return;
+        }
+        let current_handles = app.session.doc().map(|d| d.model.handles()).unwrap_or_default();
+        let new_handles = current_handles.iter().copied().filter(|h| !self.work_session_known_handles.contains(h)).collect::<Vec<_>>();
+        if new_handles.is_empty() {
+            return;
+        }
+        let floor_id = self.active_floor_id;
+        let discipline = self.active_discipline;
+        let owner = self.current_account_id.clone();
+        if let Ok(doc) = app.session.doc_mut() {
+            for handle in &new_handles {
+                let existing_revision = doc.model.get(*handle).and_then(|e| bim_meta(&e.common)).map(|m| m.revision).unwrap_or(0);
+                if doc.model.modify(*handle, |entity| {
+                    set_bim_meta(&mut entity.common, &BimEntityMeta {
+                        floor_id,
+                        discipline,
+                        owner_account_id: owner.clone(),
+                        revision: existing_revision + 1,
+                    });
+                }) {
+                    self.queue_update(*handle, existing_revision, existing_revision + 1);
+                }
+            }
+        }
+        self.work_session_known_handles = current_handles;
+    }
+
     fn ensure_progress_scope(&mut self, floor_id: u64, discipline: Discipline) {
         if self.progress.iter().any(|p| p.floor_id == floor_id && p.discipline == discipline) {
             return;
@@ -788,6 +832,22 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 });
         });
 
+        state.tag_new_entities_in_work_session(app);
+        ui.horizontal(|ui| {
+            if !state.work_session_active {
+                if ui.button("Bắt đầu phiên thiết kế theo scope này").clicked() {
+                    state.start_work_session(app);
+                }
+            } else if ui.button("Kết thúc phiên thiết kế").clicked() {
+                state.stop_work_session();
+            }
+            ui.label(if state.work_session_active {
+                "Đang tự động gắn Floor/Bộ môn/Owner cho đối tượng mới"
+            } else {
+                "Chưa bật tự động scope"
+            });
+        });
+
         let selected = app.session.selection().to_vec();
         state.update_presence(selected.first().copied());
         ui.label(format!("Đối tượng đang chọn: {}", selected.len()));
@@ -1014,6 +1074,14 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn work_session_starts_and_stops_without_losing_scope() {
+        let state = State::default();
+        assert!(!state.work_session_active);
+        assert_eq!(state.active_floor_id, 1);
+        assert_eq!(state.active_discipline, Discipline::Architecture);
+    }
 
     #[test]
     fn sync_accepts_matching_base_revision_and_rejects_stale_change() {

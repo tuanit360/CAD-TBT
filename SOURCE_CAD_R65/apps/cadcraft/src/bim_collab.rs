@@ -245,6 +245,14 @@ impl ViewMode {
 }
 
 #[derive(Clone, Debug)]
+pub struct ViewPreset {
+    pub name: String,
+    pub account_id: String,
+    pub layout: ViewLayout,
+    pub slots: Vec<ViewSlot>,
+}
+
+#[derive(Clone, Debug)]
 pub struct ViewSlot {
     pub floor_id: u64,
     pub discipline: Discipline,
@@ -433,6 +441,7 @@ pub struct State {
     pub floors: Vec<Floor>,
     pub users: Vec<UserAccess>,
     pub views: Vec<ViewSlot>,
+    pub view_presets: Vec<ViewPreset>,
     pub dirty_local_changes: usize,
     pub active_floor_id: u64,
     pub active_discipline: Discipline,
@@ -484,6 +493,7 @@ impl Default for State {
             floors,
             users,
             views,
+            view_presets: Vec::new(),
             dirty_local_changes: 0,
             active_floor_id: 1,
             active_discipline: Discipline::Architecture,
@@ -530,6 +540,31 @@ impl Default for State {
 }
 
 impl State {
+    fn save_view_preset(&mut self, name: String) {
+        let name = name.trim().to_string();
+        if name.is_empty() { return; }
+        let preset = ViewPreset {
+            name: name.clone(),
+            account_id: self.current_account_id.clone(),
+            layout: self.layout,
+            slots: self.views.clone(),
+        };
+        if let Some(existing) = self.view_presets.iter_mut().find(|p| p.name == name && p.account_id == self.current_account_id) {
+            *existing = preset;
+        } else {
+            self.view_presets.push(preset);
+        }
+        self.audit("VIEW_PRESET_SAVED", Some(self.active_floor_id), Some(self.active_discipline), None, name);
+    }
+
+    fn apply_view_preset(&mut self, name: &str) -> bool {
+        let Some(preset) = self.view_presets.iter().find(|p| p.name == name && p.account_id == self.current_account_id).cloned() else { return false };
+        self.layout = preset.layout;
+        self.views = preset.slots;
+        self.audit("VIEW_PRESET_APPLIED", Some(self.active_floor_id), Some(self.active_discipline), None, name.to_string());
+        true
+    }
+
     fn active_native_view_index(&self, app: &cadcraft_ui_egui::CadApp) -> usize {
         let tiles = app.session.model_tiles();
         if tiles.is_empty() {
@@ -757,6 +792,19 @@ impl State {
             "show_other_users": v.show_other_users,
             "mode": v.mode.label()
         })).collect::<Vec<_>>();
+        let view_presets = self.view_presets.iter().map(|p| serde_json::json!({
+            "name": p.name,
+            "account_id": p.account_id,
+            "layout": p.layout.slots(),
+            "slots": p.slots.iter().map(|v| serde_json::json!({
+                "floor_id": v.floor_id,
+                "discipline": v.discipline.label(),
+                "owner_account_id": v.owner_account_id,
+                "overlay_opacity": v.overlay_opacity,
+                "show_other_users": v.show_other_users,
+                "mode": v.mode.label()
+            })).collect::<Vec<_>>()
+        })).collect::<Vec<_>>();
         let access_rules = self.access_rules.iter().map(|r| serde_json::json!({
             "account_id": r.account_id,
             "floor_id": r.floor_id,
@@ -802,6 +850,7 @@ impl State {
             "layout": self.layout.slots(),
             "floors": floors,
             "views": views,
+            "view_presets": view_presets,
             "access_rules": access_rules,
             "share_grants": share_grants,
             "active_floor_id": self.active_floor_id,
@@ -854,6 +903,36 @@ impl State {
                 }
                 self.views = views;
             }
+        }
+        if let Some(items) = value.get("view_presets").and_then(serde_json::Value::as_array) {
+            let mut presets = Vec::new();
+            for item in items {
+                let name = item.get("name").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                let account_id = item.get("account_id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                let layout = match item.get("layout").and_then(serde_json::Value::as_u64).unwrap_or(2) {
+                    1 => ViewLayout::One, 3 => ViewLayout::Three, 4 => ViewLayout::Four, _ => ViewLayout::Two
+                };
+                let mut slots = Vec::new();
+                if let Some(slot_items) = item.get("slots").and_then(serde_json::Value::as_array) {
+                    for slot in slot_items.iter().take(4) {
+                        slots.push(ViewSlot {
+                            floor_id: slot.get("floor_id").and_then(serde_json::Value::as_u64).unwrap_or(1),
+                            discipline: slot.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label).unwrap_or(Discipline::Architecture),
+                            owner_account_id: slot.get("owner_account_id").and_then(serde_json::Value::as_str).map(str::to_string),
+                            overlay_opacity: slot.get("overlay_opacity").and_then(serde_json::Value::as_f64).unwrap_or(0.35).clamp(0.05, 1.0) as f32,
+                            show_other_users: slot.get("show_other_users").and_then(serde_json::Value::as_bool).unwrap_or(true),
+                            mode: if slot.get("mode").and_then(serde_json::Value::as_str) == Some("Chỉnh sửa") { ViewMode::Edit } else { ViewMode::Reference },
+                        });
+                    }
+                }
+                if !name.is_empty() && !account_id.is_empty() && !slots.is_empty() {
+                    while slots.len() < 4 {
+                        slots.push(ViewSlot { floor_id: 1, discipline: Discipline::Coordination, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true, mode: ViewMode::Reference });
+                    }
+                    presets.push(ViewPreset { name, account_id, layout, slots });
+                }
+            }
+            self.view_presets = presets;
         }
         if let Some(items) = value.get("access_rules").and_then(serde_json::Value::as_array) {
             self.access_rules = items.iter().filter_map(|item| {
@@ -1367,6 +1446,25 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     });
 
     ui.separator();
+    ui.collapsing("Bố cục cá nhân / View Preset", |ui| {
+        ui.horizontal(|ui| {
+            if ui.button("Lưu preset hiện tại").clicked() {
+                let name = format!("{}-{}-{}V", state.current_account_id, state.active_floor_id, state.layout.slots());
+                state.save_view_preset(name);
+            }
+            ui.label(format!("Preset của tài khoản: {}", state.view_presets.iter().filter(|p| p.account_id == state.current_account_id).count()));
+        });
+        let names = state.view_presets.iter().filter(|p| p.account_id == state.current_account_id).map(|p| p.name.clone()).collect::<Vec<_>>();
+        for name in names {
+            ui.horizontal(|ui| {
+                ui.label(&name);
+                if ui.button("Áp dụng").clicked() {
+                    state.apply_view_preset(&name);
+                }
+            });
+        }
+    });
+
     ui.horizontal(|ui| {
         ui.label("Chia màn hình:");
         for layout in [ViewLayout::One, ViewLayout::Two, ViewLayout::Three, ViewLayout::Four] {
@@ -1571,6 +1669,19 @@ mod tests {
         let state = State::default();
         assert_eq!(state.views[0].mode, ViewMode::Edit);
         assert_eq!(state.views[1].mode, ViewMode::Reference);
+    }
+
+    #[test]
+    fn view_preset_is_scoped_per_account_and_restores_layout() {
+        let mut state = State::default();
+        state.layout = ViewLayout::Four;
+        state.views[2].floor_id = 3;
+        state.save_view_preset("Quad".into());
+        state.layout = ViewLayout::One;
+        state.views[2].floor_id = 1;
+        assert!(state.apply_view_preset("Quad"));
+        assert_eq!(state.layout, ViewLayout::Four);
+        assert_eq!(state.views[2].floor_id, 3);
     }
 
     #[test]

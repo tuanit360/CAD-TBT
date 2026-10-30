@@ -773,6 +773,25 @@ mod tests {
     }
 
     #[test]
+    fn qto_project_rejects_invalid_measurement_geometry_on_reopen() {
+        let bad=serde_json::json!({
+            "drawing_distance":0.0,
+            "real_distance_m":0.0,
+            "records":[{"id":1,"kind":"length","points":[["x",0.0]],"raw_value":2.0,"status":"review"}],
+            "audit":[]
+        });
+        assert!(State::default().load_json(&bad).is_err());
+
+        let missing_geometry=serde_json::json!({
+            "drawing_distance":0.0,
+            "real_distance_m":0.0,
+            "records":[{"id":1,"kind":"area","points":[],"raw_value":2.0,"status":"review"}],
+            "audit":[]
+        });
+        assert!(State::default().load_json(&missing_geometry).is_err());
+    }
+
+    #[test]
     fn qto_project_json_roundtrip_preserves_calibration() {
         let original = State { drawing_distance: 2500.0, real_distance_m: 2.5, ..Default::default() };
         let mut restored = State::default();

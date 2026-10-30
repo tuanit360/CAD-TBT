@@ -207,6 +207,17 @@ pub struct Services {
     pub no_file_system: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct TileRenderFilter {
+    pub enabled: bool,
+    /// Fully opaque/editing scope for this viewport.
+    pub primary_handles: Vec<cadcraft_doc::Handle>,
+    /// Read-only coordination overlay.
+    pub reference_handles: Vec<cadcraft_doc::Handle>,
+    /// 0..=1 multiplier applied to reference primitives.
+    pub reference_opacity: f32,
+}
+
 pub struct CadApp {
     pub system_languages: Vec<String>,
     /// Whether the operating system shows animations, as the host reads it; `None` when the OS
@@ -218,6 +229,9 @@ pub struct CadApp {
     pub options: options::UiOptions,
     pub services: Services,
     pub canvas: canvas::CanvasState,
+    /// Optional per-model-tile filters supplied by BIM/collaboration hosts.
+    /// Empty/disabled entries preserve the normal CAD renderer.
+    pub tile_render_filters: Vec<TileRenderFilter>,
     /// Desktop HID status and navigation preferences; the web host supplies no HID backend.
     pub spacemouse: spacemouse::State,
     pub cmd: cmdline::CmdLine,
@@ -299,6 +313,7 @@ impl CadApp {
             options: options::UiOptions::default(),
             services,
             canvas: canvas::CanvasState::default(),
+            tile_render_filters: Vec::new(),
             spacemouse: spacemouse::State::default(),
             cmd: cmdline::CmdLine::default(),
             status: None,

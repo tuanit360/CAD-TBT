@@ -1324,6 +1324,25 @@ mod tests {
     }
 
     #[test]
+    fn qto_v3_roundtrip_preserves_complete_source_link_contract() {
+        let mut state=State::default();
+        let scope=Scope{floor_id:Some(2),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
+        let measurement=PendingMeasurement{kind:MeasureKind::Length,points:vec![[1.0,2.0],[4.0,6.0]],raw_value:5.0,layer:"E-CABLE".into(),source_handle:cadcraft_doc::Handle(0x2A)};
+        let signature=geometry_signature(&measurement);
+        state.add_measurement_from_entity(measurement,&scope,Some(9)).unwrap();
+        let json=state.to_json();
+        let mut reopened=State::default();
+        reopened.load_json(&json).unwrap();
+        let record=&reopened.records[0];
+        assert_eq!(record.source_handle.as_deref(),Some("2A"));
+        assert_eq!(record.source_revision,Some(9));
+        assert_eq!(record.source_geometry_signature.as_deref(),Some(signature.as_str()));
+        assert_eq!(record.scope.floor_id,Some(2));
+        assert_eq!(record.scope.discipline.as_deref(),Some("ELEC"));
+        assert_eq!(record.scope.owner_account_id.as_deref(),Some("u1"));
+    }
+
+    #[test]
     fn qto_v3_roundtrip_preserves_source_revision() {
         let mut state=State::default();
         let scope=Scope{floor_id:Some(1),discipline:Some("ARCH".into()),owner_account_id:Some("u1".into())};

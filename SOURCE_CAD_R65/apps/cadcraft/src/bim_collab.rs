@@ -1037,7 +1037,7 @@ impl State {
         })
     }
 
-    fn load_snapshot_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
+    fn load_snapshot_json_in_place(&mut self,value:&serde_json::Value)->Result<(),String> {
         if value.get("version").and_then(serde_json::Value::as_u64) != Some(2) { return Err("Phiên bản BIM workspace không được hỗ trợ".into()); }
         self.project_id = value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or("project-local-001").trim().to_string();
         if self.project_id.is_empty() { return Err("BIM workspace thiếu project_id".into()); }
@@ -1286,6 +1286,17 @@ impl State {
             && self.has_share_access(&me.account_id, &target.account_id, target_floor, target.discipline, false)
     }
 
+    fn load_snapshot_json(&mut self,value:&serde_json::Value)->Result<(),String> {
+        let backup=self.snapshot_json();
+        match self.load_snapshot_json_in_place(value) {
+            Ok(())=>Ok(()),
+            Err(err)=>{
+                let _=self.load_snapshot_json_in_place(&backup);
+                Err(err)
+            }
+        }
+    }
+
     fn viewport_entity_count(&self, app: &cadcraft_ui_egui::CadApp, slot: &ViewSlot) -> usize {
         let Ok(doc) = app.session.doc() else { return 0 };
         doc.model.iter().filter(|entity| {
@@ -1428,7 +1439,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 if let Some(path) = rfd::FileDialog::new().add_filter("TBT BIM Workspace", &["json"]).pick_file() {
                     if let Ok(data) = std::fs::read(path) {
                         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&data) {
-                            if let Err(e) = state.load_snapshot_json(&value) { eprintln!("BIM workspace: {e}"); }
+                            match state.load_snapshot_json(&value) {
+                                Ok(())=>{
+                                    if let Err(e)=state.apply_native_viewports(app) { eprintln!("BIM viewport: {e}"); }
+                                }
+                                Err(e)=>eprintln!("BIM workspace: {e}"),
+                            }
                         }
                     }
                 }
@@ -2057,6 +2073,24 @@ mod tests {
         let mut invalid_view=State::default().snapshot_json();
         invalid_view["views"][0]["floor_id"]=serde_json::json!(999);
         assert!(State::default().load_snapshot_json(&invalid_view).is_err());
+    }
+
+    #[test]
+    fn bim_workspace_invalid_load_is_transactional() {
+        let mut state=State::default();
+        state.project_id="KEEP-ME".into();
+        state.project_name="Keep current workspace".into();
+        state.coordinates.origin_x_m=321.0;
+        state.views[1].floor_id=2;
+        let before=state.snapshot_json();
+
+        let mut invalid=before.clone();
+        invalid["project_id"]=serde_json::json!("MUTATED-BEFORE-FAIL");
+        invalid["coordinates"]["origin_x_m"]=serde_json::json!(999.0);
+        invalid["floors"][0]["height_m"]=serde_json::json!(0.0);
+
+        assert!(state.load_snapshot_json(&invalid).is_err());
+        assert_eq!(state.snapshot_json(),before);
     }
 
     #[test]

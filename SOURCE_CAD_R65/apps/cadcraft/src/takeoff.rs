@@ -302,6 +302,31 @@ struct BusinessQuantity {
     count: f64,
 }
 
+fn scoped_business_quantities(state: &State, length_factor: f64, area_factor: f64) -> BTreeMap<(Option<u64>, String, String, String, String), BusinessQuantity> {
+    let mut groups=BTreeMap::new();
+    for record in &state.records {
+        let discipline=record.scope.discipline.clone().unwrap_or_else(||"(Không scope)".into());
+        let owner=record.scope.owner_account_id.clone().unwrap_or_else(||"(Không owner)".into());
+        let work_group=if record.work_group.trim().is_empty(){"(Chưa gán nhóm)".into()}else{record.work_group.trim().to_string()};
+        let work_code=if record.work_code.trim().is_empty(){"(Chưa gán mã)".into()}else{record.work_code.trim().to_string()};
+        let q=groups.entry((record.scope.floor_id,discipline,owner,work_group,work_code)).or_insert_with(BusinessQuantity::default);
+        match record.status {
+            MeasureStatus::Review=>q.review_records+=1,
+            MeasureStatus::Excluded=>q.excluded_records+=1,
+            MeasureStatus::Confirmed=>{
+                q.confirmed_records+=1;
+                match record.kind {
+                    MeasureKind::Length=>q.length+=record.raw_value*length_factor,
+                    MeasureKind::Perimeter=>q.perimeter+=record.raw_value*length_factor,
+                    MeasureKind::Area=>q.area+=record.raw_value*area_factor,
+                    MeasureKind::Count=>q.count+=record.raw_value,
+                }
+            }
+        }
+    }
+    groups
+}
+
 fn business_quantities(state: &State, length_factor: f64, area_factor: f64) -> BTreeMap<(String, String, String), BusinessQuantity> {
     let mut groups = BTreeMap::<(String, String, String), BusinessQuantity>::new();
     for record in &state.records {
@@ -646,7 +671,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let mut action: Option<(u64, u8)> = None;
         egui::ScrollArea::horizontal().show(ui, |ui| {
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
-                for h in ["ID","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
+                for h in ["ID","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
                     let value = match record.kind {
@@ -656,6 +681,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     };
                     let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "lần" };
                     ui.label(record.id.to_string());
+                    ui.label(record.scope.floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
+                    ui.label(record.scope.discipline.as_deref().unwrap_or("-"));
+                    ui.label(record.scope.owner_account_id.as_deref().unwrap_or("-"));
                     ui.label(match record.kind { MeasureKind::Length=>"Chiều dài", MeasureKind::Area=>"Diện tích", MeasureKind::Perimeter=>"Chu vi", MeasureKind::Count=>"Đếm" });
                     ui.label(&record.layer);
                     ui.label(&record.work_group);
@@ -716,6 +744,31 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     }
 
     ui.separator();
+    ui.strong("Tổng hợp theo BIM Scope");
+    let scoped_groups=scoped_business_quantities(state,lf,af);
+    egui::ScrollArea::horizontal().show(ui,|ui|{
+        egui::Grid::new("native_qto_bim_scope_summary").striped(true).show(ui,|ui|{
+            for h in ["Tầng","Bộ môn","Owner","Nhóm","Mã CT","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
+            ui.end_row();
+            for ((floor_id,discipline,owner,work_group,work_code),q) in &scoped_groups {
+                ui.label(floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
+                ui.label(discipline);
+                ui.label(owner);
+                ui.label(work_group);
+                ui.label(work_code);
+                ui.label(q.review_records.to_string());
+                ui.label(q.confirmed_records.to_string());
+                ui.label(q.excluded_records.to_string());
+                ui.label(format!("{:.3} {}",q.length,length_unit));
+                ui.label(format!("{:.3} {}",q.perimeter,length_unit));
+                ui.label(format!("{:.3} {}",q.area,area_unit));
+                ui.label(format!("{:.3}",q.count));
+                ui.end_row();
+            }
+        });
+    });
+
+    ui.separator();
     ui.strong("Tổng hợp nghiệp vụ đã xác nhận");
     ui.label("Chỉ record trạng thái Đã xác nhận được cộng vào khối lượng; Review và Loại vẫn hiển thị để kiểm soát.");
     let business_groups = business_quantities(state, lf, af);
@@ -761,7 +814,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.ctx().copy_text(csv);
         }
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
-            let mut csv = String::from("id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
+            let mut csv = String::from("id,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
             for record in &state.records {
                 let converted = match record.kind {
                     MeasureKind::Area => record.raw_value * af,
@@ -770,8 +823,12 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 };
                 let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
                 let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
-                csv.push_str(&format!("{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
-                    record.id, record.kind.code(), esc(&record.layer), esc(&record.work_group), esc(&record.work_code),
+                csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
+                    record.id,
+                    record.scope.floor_id.map(|v|v.to_string()).unwrap_or_default(),
+                    esc(record.scope.discipline.as_deref().unwrap_or("")),
+                    esc(record.scope.owner_account_id.as_deref().unwrap_or("")),
+                    record.kind.code(), esc(&record.layer), esc(&record.work_group), esc(&record.work_code),
                     esc(&record.description), esc(&record.note), record.raw_value, converted, unit, record.status.code()));
             }
             ui.ctx().copy_text(csv);
@@ -885,6 +942,26 @@ mod tests {
         assert!((reopened.records[0].raw_value * reopened.scale_to_m().unwrap() - 2.5).abs() < 1e-12);
         assert_eq!(reopened.audit, state.audit);
         assert!(reopened.next_audit_sequence > reopened.audit.last().map(|a| a.sequence).unwrap_or(0));
+    }
+
+    #[test]
+    fn scoped_measurement_roundtrip_preserves_bim_scope_and_separates_totals() {
+        let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
+        let floor1=Scope{floor_id:Some(1),discipline:Some("Kiến trúc".into()),owner_account_id:Some("u1".into())};
+        let floor2=Scope{floor_id:Some(2),discipline:Some("Kiến trúc".into()),owner_account_id:Some("u1".into())};
+        let a=state.add_measurement_scoped(MeasureKind::Count,Vec::new(),2.0,"DEVICE".into(),&floor1).unwrap();
+        let b=state.add_measurement_scoped(MeasureKind::Count,Vec::new(),3.0,"DEVICE".into(),&floor2).unwrap();
+        assert!(state.set_status(a,MeasureStatus::Confirmed));
+        assert!(state.set_status(b,MeasureStatus::Confirmed));
+        let groups=scoped_business_quantities(&state,1.0,1.0);
+        assert_eq!(groups.len(),2);
+
+        let json=state.to_json();
+        let mut reopened=State::default();
+        reopened.load_json(&json).unwrap();
+        assert_eq!(reopened.records[0].scope.floor_id,Some(1));
+        assert_eq!(reopened.records[1].scope.floor_id,Some(2));
+        assert_eq!(reopened.records[0].scope.discipline.as_deref(),Some("Kiến trúc"));
     }
 
     #[test]

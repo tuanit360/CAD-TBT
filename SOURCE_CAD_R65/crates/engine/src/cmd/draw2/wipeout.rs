@@ -24,7 +24,8 @@ fn wipeout_from_polyline(s: &mut Session, h: Handle, erase: bool) -> Result<Hand
     if p.vertices.iter().any(|v| v.bulge.abs() > 1e-12) {
         return Err(other("Polylines with arc segments cannot be used for wipeouts."));
     }
-    let nh = s.add_entity(EntityKind::Wipeout(Wipeout { boundary: p.vertices.iter().map(|v| v.p).collect() }))?;
+    let nh=s.add_entity(EntityKind::Wipeout(Wipeout{boundary:p.vertices.iter().map(|v|v.p).collect()}))?;
+    crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,nh,&[h]);
     if erase {
         s.doc_mut()?.remove_entity(h);
     }

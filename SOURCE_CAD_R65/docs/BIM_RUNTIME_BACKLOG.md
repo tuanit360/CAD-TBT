@@ -49,7 +49,7 @@ Covered additionally:
 
 Still needs the same helper/policy wired in only where a real source entity exists:
 - Other derived construction objects that explicitly reference source handles.
-- TXT2MTXT multi-source merge policy when the surviving first handle has a different scope from the removed texts.
+- TXT2MTXT combined output now keeps BIM scope only when all source texts share one scope; mixed sources strip BIM scope from the surviving handle.
 - BURST/EXPLODE only for true multi-source merge cases; ordinary exploded pieces are already covered.
 - GROUP copy does not create entities and needs no BIM identity work.
 
@@ -64,9 +64,11 @@ Closed by runtime + adopt/remap normalization:
 - Every post-command pass re-normalizes real handles for model/layout/block entities.
 - A changed block definition automatically invalidates existing BIM INSERT references once, without double-bumping commands that already did it.
 
-Still requires persistence/regression evidence rather than more command patches:
-- DXF roundtrip.
-- DWG roundtrip.
+Persistence contracts now added:
+- DXF roundtrip keeps handle plus full TBT360_BIM floor/discipline/owner/revision/entity payload across two consecutive reopen cycles.
+- DWG R2018 roundtrip has a dedicated TBT360_BIM identity regression through the existing DWG bridge.
+
+Still requires runtime evidence rather than more command patches:
 - WBLOCK -> INSERT roundtrip.
 - System clipboard DXF roundtrip.
 - XREF reload from a real external file.
@@ -79,8 +81,8 @@ Closed:
 - Block-definition changes with stable INSERT handles are handled centrally by runtime revision invalidation.
 
 Remaining:
-- Nested block/array element source identity.
-- XREF reload/remap source identity across real external-file regression.
+- Nested block/array element provenance needs a stable path contract; do not fake nested members as model-space handles.
+- XREF reload/remap source identity across a real external-file regression.
 - Multi-source derived entity provenance beyond the shared source-scope helper.
 - Auto-relink ambiguity hardening for imported/remapped files.
 - Count remains existence/scope based, not coordinate based.

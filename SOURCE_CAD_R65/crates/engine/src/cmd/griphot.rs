@@ -182,8 +182,11 @@ impl GripEdit {
         if self.hot.first().is_some_and(|(h, _)| super::curves::is_locked(s, *h)) {
             return Err(other("The object is on a locked layer."));
         }
-        let (h, k) = self.acted(s, action, to, value).ok_or_else(|| other("That would make a degenerate object."))?;
-        s.doc_mut()?.modify_entity(h, |e| e.kind = k)?;
+        let (h,k)=self.acted(s,action,to,value).ok_or_else(||other("That would make a degenerate object."))?;
+        s.doc_mut()?.modify_entity(h,|e|{
+            e.kind=k;
+            super::modify::bump_tbt360_bim_revision(&mut e.common,h);
+        })?;
         Ok(Step::Done)
     }
 

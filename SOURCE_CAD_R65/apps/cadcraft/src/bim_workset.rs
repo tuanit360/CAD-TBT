@@ -45,6 +45,14 @@ impl ModelRevision {
         self.published_by = Some(account_id);
         true
     }
+
+    #[test]
+    fn consumer_can_only_reference_published_revision() {
+        let mut r=ModelRevision{id:1,project_id:"P".into(),workset_id:"W".into(),number:1,state:RevisionState::Working,created_by:"u".into(),reviewed_by:None,published_by:None};
+        assert!(consume_revision("C".into(),&r).is_err());
+        r.state=RevisionState::Published;
+        assert_eq!(consume_revision("C".into(),&r).unwrap().source_revision,1);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +60,25 @@ pub struct ConsumedRevision {
     pub consumer_workset_id: String,
     pub source_workset_id: String,
     pub source_revision: u64,
+}
+
+pub fn consume_revision(consumer_workset_id: String, source: &ModelRevision) -> Result<ConsumedRevision, String> {
+    if source.state != RevisionState::Published {
+        return Err("Chỉ được consume revision đã Published".into());
+    }
+    Ok(ConsumedRevision {
+        consumer_workset_id,
+        source_workset_id: source.workset_id.clone(),
+        source_revision: source.number,
+    })
+}
+
+pub fn supersede_previous(previous: &mut ModelRevision, next: &ModelRevision) -> bool {
+    if previous.workset_id != next.workset_id || previous.state != RevisionState::Published || next.state != RevisionState::Published || next.number <= previous.number {
+        return false;
+    }
+    previous.state = RevisionState::Superseded;
+    true
 }
 
 #[cfg(test)]

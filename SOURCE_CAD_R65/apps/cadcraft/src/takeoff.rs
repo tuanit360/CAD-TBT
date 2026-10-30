@@ -1179,6 +1179,23 @@ mod tests {
     }
 
     #[test]
+    fn confirmed_quantity_returns_after_source_becomes_valid_again() {
+        let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
+        let id=state.add_measurement(MeasureKind::Count,Vec::new(),5.0,"DEVICE".into()).unwrap();
+        assert!(state.set_status(id,MeasureStatus::Confirmed));
+
+        let invalid=std::collections::BTreeSet::from([id]);
+        let stale_groups=business_quantities_validated(&state,1.0,1.0,&invalid);
+        assert_eq!(stale_groups.values().next().unwrap().count,0.0);
+
+        let valid=std::collections::BTreeSet::new();
+        let restored_groups=business_quantities_validated(&state,1.0,1.0,&valid);
+        assert_eq!(restored_groups.values().next().unwrap().confirmed_records,1);
+        assert_eq!(restored_groups.values().next().unwrap().count,5.0);
+        assert_eq!(state.records[0].status,MeasureStatus::Confirmed);
+    }
+
+    #[test]
     fn validated_business_summary_excludes_invalid_confirmed_record() {
         let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
         let id=state.add_measurement(MeasureKind::Count,Vec::new(),5.0,"DEVICE".into()).unwrap();

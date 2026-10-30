@@ -400,13 +400,12 @@ fn import(d: &mut Drawing, key: &str, x: &Drawing, cx: &mut Ctx) -> Result<(), S
             d.table_styles.push(cadcraft_doc::TableStyle { name: n, ..t.clone() });
         }
     }
-    let adopt = |d: &mut Drawing, e: &Entity| {
-        let mut e = e.clone();
-        e.handle = d.new_handle();
-        rename_refs(&mut e, &dep);
-        if let EntityKind::Dimension(dm) = &mut e.kind {
-            dm.assoc.clear();
-        }
+    let adopt=|d:&mut Drawing,e:&Entity| {
+        let mut e=e.clone();
+        e.handle=d.new_handle();
+        crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
+        rename_refs(&mut e,&dep);
+        if let EntityKind::Dimension(dm)=&mut e.kind { dm.assoc.clear(); }
         e
     };
     for (name, b) in &x.blocks {

@@ -568,8 +568,10 @@ version = "0.13.0"
 dependencies = [
  "cadcraft-doc",
  "cadcraft-engine",
+ "cadcraft-geom",
  "cadcraft-io",
  "cadcraft-mcp",
+ "cadcraft-render",
  "cadcraft-ui-egui",
  "chrono",
  "craft-ui",

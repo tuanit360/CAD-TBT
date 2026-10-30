@@ -46,8 +46,9 @@ fn drag(s: &mut Session, h: Handle, node: i32, part: GripPart, to: Vec2) -> std:
         return Err("the reference is on a locked layer".into());
     }
     let mut d = s.doc().map_err(|e| e.to_string())?.clone();
-    dynblock::drag_grip(&mut d, h, node, part, to)?;
-    *s.doc_mut().map_err(|e| e.to_string())? = d;
+    dynblock::drag_grip(&mut d,h,node,part,to)?;
+    d.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h)).map_err(|e|e.to_string())?;
+    *s.doc_mut().map_err(|e|e.to_string())?=d;
     Ok(())
 }
 
@@ -143,8 +144,9 @@ impl Interactive for DynGripEdit {
             Input::Deferred(d) => d.at,
             Input::Text(t) if self.distance => {
                 let mut d = s.doc()?.clone();
-                dynblock::set_property(&mut d, self.handle, &self.property, t.trim()).map_err(EngineError::Other)?;
-                *s.doc_mut()? = d;
+                dynblock::set_property(&mut d,self.handle,&self.property,t.trim()).map_err(EngineError::Other)?;
+                d.modify_entity(self.handle,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,self.handle))?;
+                *s.doc_mut()?=d;
                 return Ok(Step::Done);
             }
             Input::Keyword(k) if k == "eXit" => return Ok(Step::Done),

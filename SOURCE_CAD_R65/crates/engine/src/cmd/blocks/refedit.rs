@@ -63,9 +63,10 @@ fn active(s: &Session, cmd: &str) -> Result<RefEdit> {
 }
 
 /// A block object as the drawing shows it through the edited reference.
-fn to_host(to_world: &Mat3, e: &Entity, h: Handle, ghost: bool) -> Entity {
-    let mut c = e.clone();
-    c.handle = h;
+fn to_host(to_world:&Mat3,e:&Entity,h:Handle,ghost:bool)->Entity {
+    let mut c=e.clone();
+    c.handle=h;
+    crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut c.common,h);
     c.kind.transform(to_world);
     if ghost {
         c.common.transparency = Transparency::Percent(GHOST_FADE);
@@ -74,9 +75,10 @@ fn to_host(to_world: &Mat3, e: &Entity, h: Handle, ghost: bool) -> Entity {
 }
 
 /// A drawing object as it belongs in the block, with the block object's handle `h`.
-fn to_block(inv: &Mat3, e: &Entity, h: Handle) -> Entity {
-    let mut c = e.clone();
-    c.handle = h;
+fn to_block(inv:&Mat3,e:&Entity,h:Handle)->Entity {
+    let mut c=e.clone();
+    c.handle=h;
+    crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut c.common,h);
     c.kind.transform(inv);
     c
 }
@@ -279,7 +281,8 @@ fn close(s: &mut Session, save: bool) -> Result<Value> {
     let mut nd: Drawing = s.doc()?.clone();
     let mut objects = 0;
     if save {
-        objects = commit_block(&mut nd, &r)?;
+        objects=commit_block(&mut nd,&r)?;
+        super::attribs::update_reference_entities(&mut nd,&r.block,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,e.handle));
     }
     nd.end_refedit_discard(&r);
     *s.doc_mut()? = nd;

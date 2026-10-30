@@ -391,10 +391,6 @@ fn main() -> eframe::Result {
             if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::PREFS_KEY)) {
                 app.load_prefs(&prefs);
             }
-            // Default the TBT360-branded build to Vietnamese; users may change it in Settings.
-            if std::env::var_os("TBT360_LOCALE").is_none() {
-                app.ui.interface_language = cadcraft_ui_egui::i18n::Preference::parse("vi").expect("Vietnamese locale is supported");
-            }
             if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::autosave::PREFS_KEY)) {
                 cadcraft_ui_egui::autosave::load_prefs(&prefs);
             }

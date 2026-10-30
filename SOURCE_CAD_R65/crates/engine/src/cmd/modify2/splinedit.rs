@@ -26,8 +26,9 @@ pub(super) fn run_splinedit(s: &mut Session, p: &Value) -> Result<Value> {
         let removed = join(s, h, sp, &others)?;
         return Ok(json!({ "handle": h.hex(), "joined": removed.len() }));
     }
-    let k = edit(sp, &opt, p)?;
-    set_kind(s, h, k)?;
+    let k=edit(sp,&opt,p)?;
+    set_kind(s,h,k)?;
+    s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     Ok(json!({ "handle": h.hex() }))
 }
 

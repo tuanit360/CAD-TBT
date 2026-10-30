@@ -206,8 +206,13 @@ pub(super) fn sync(s: &mut Session, name: &str) -> Result<(String, usize)> {
     let blk = s.doc()?.block(name).cloned().ok_or_else(|| EngineError::Other(format!("Block \"{name}\" not found.")))?;
     let defs = attdefs(&blk);
     let d = s.doc_mut()?;
-    let n = update_references(d, &blk.name, |ins| ins.attribs = synced(&blk, &defs, ins));
-    Ok((blk.name.clone(), n))
+    let n=update_reference_entities(d,&blk.name,|e|{
+        if let EntityKind::Insert(ins)=&mut e.kind {
+            ins.attribs=synced(&blk,&defs,ins);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,e.handle);
+        }
+    });
+    Ok((blk.name.clone(),n))
 }
 
 /// Whether block `name` has attribute definitions.

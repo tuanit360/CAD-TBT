@@ -297,6 +297,23 @@ impl State {
 }
 
 
+#[derive(Clone, Debug)]
+struct PendingMeasurement {
+    kind: MeasureKind,
+    points: Vec<[f64; 2]>,
+    raw_value: f64,
+    layer: String,
+    source_handle: cadcraft_doc::Handle,
+}
+
+fn scope_from_entity_or_active(app:&CadApp, handle:cadcraft_doc::Handle, active_scope:&Scope)->Scope {
+    crate::bim_collab::entity_scope(app,handle).map(|scope|Scope {
+        floor_id:Some(scope.floor_id),
+        discipline:Some(scope.discipline),
+        owner_account_id:Some(scope.owner_account_id),
+    }).unwrap_or_else(||active_scope.clone())
+}
+
 #[derive(Default)]
 struct BusinessQuantity {
     review_records: usize,
@@ -361,15 +378,15 @@ fn business_quantities(state: &State, length_factor: f64, area_factor: f64) -> B
     groups
 }
 
-fn selected_count_measurements(app: &CadApp) -> Vec<(MeasureKind, Vec<[f64; 2]>, f64, String)> {
+fn selected_count_measurements(app: &CadApp) -> Vec<PendingMeasurement> {
     let selected = app.session.selection();
     let Ok(drawing) = app.session.doc() else { return Vec::new(); };
-    let mut by_layer = BTreeMap::<String, f64>::new();
+    let mut out=Vec::new();
     for handle in selected {
-        let Some(entity) = drawing.model.get(handle) else { continue; };
-        *by_layer.entry(entity.common.layer.clone()).or_default() += 1.0;
+        let Some(entity)=drawing.model.get(handle) else { continue; };
+        out.push(PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:entity.common.layer.clone(),source_handle:handle});
     }
-    by_layer.into_iter().map(|(layer, count)| (MeasureKind::Count, Vec::new(), count, layer)).collect()
+    out
 }
 
 #[derive(Default)]
@@ -476,7 +493,7 @@ fn lwpoly_metrics(vertices: &[cadcraft_doc::geom::PolyVertex], closed: bool) -> 
     }
 }
 
-fn selected_measurements(app: &CadApp) -> Vec<(MeasureKind, Vec<[f64; 2]>, f64, String)> {
+fn selected_measurements(app: &CadApp) -> Vec<PendingMeasurement> {
     let selected = app.session.selection();
     let Ok(drawing) = app.session.doc() else { return Vec::new(); };
     let mut out = Vec::new();
@@ -487,7 +504,7 @@ fn selected_measurements(app: &CadApp) -> Vec<(MeasureKind, Vec<[f64; 2]>, f64, 
             EntityKind::Line(line) => {
                 let value = (line.b.x-line.a.x).hypot(line.b.y-line.a.y).hypot(line.b.z-line.a.z);
                 if value.is_finite() {
-                    out.push((MeasureKind::Length, vec![[line.a.x,line.a.y],[line.b.x,line.b.y]], value, layer));
+                    out.push(PendingMeasurement{kind:MeasureKind::Length,points:vec![[line.a.x,line.a.y],[line.b.x,line.b.y]],raw_value:value,layer,source_handle:handle});
                 }
             }
             EntityKind::Arc(arc) if arc.radius.is_finite() && arc.radius > 0.0 => {
@@ -495,17 +512,17 @@ fn selected_measurements(app: &CadApp) -> Vec<(MeasureKind, Vec<[f64; 2]>, f64, 
                 let value=arc.radius*delta;
                 let a=[arc.center.x+arc.radius*arc.start.cos(),arc.center.y+arc.radius*arc.start.sin()];
                 let b=[arc.center.x+arc.radius*arc.end.cos(),arc.center.y+arc.radius*arc.end.sin()];
-                if value.is_finite() { out.push((MeasureKind::Length,vec![a,b],value,layer)); }
+                if value.is_finite() { out.push(PendingMeasurement{kind:MeasureKind::Length,points:vec![a,b],raw_value:value,layer,source_handle:handle}); }
             }
             EntityKind::Circle(circle) if circle.radius.is_finite() && circle.radius > 0.0 => {
                 let area=std::f64::consts::PI*circle.radius*circle.radius;
-                out.push((MeasureKind::Area,vec![[circle.center.x,circle.center.y],[circle.center.x+circle.radius,circle.center.y]],area,layer));
+                out.push(PendingMeasurement{kind:MeasureKind::Area,points:vec![[circle.center.x,circle.center.y],[circle.center.x+circle.radius,circle.center.y]],raw_value:area,layer,source_handle:handle});
             }
             EntityKind::LwPolyline(poly) => {
                 if let Some((perimeter,area))=lwpoly_metrics(&poly.vertices,poly.closed) {
                     let points=poly.vertices.iter().map(|v|[v.p.x,v.p.y]).collect::<Vec<_>>();
-                    if perimeter>0.0 { out.push((MeasureKind::Perimeter,points.clone(),perimeter,layer.clone())); }
-                    if poly.closed && area>0.0 { out.push((MeasureKind::Area,points,area,layer)); }
+                    if perimeter>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle:handle}); }
+                    if poly.closed && area>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle:handle}); }
                 }
             }
             EntityKind::Polyline3d(poly) => {
@@ -517,7 +534,7 @@ fn selected_measurements(app: &CadApp) -> Vec<(MeasureKind, Vec<[f64; 2]>, f64, 
                     value+=(b.x-a.x).hypot(b.y-a.y).hypot(b.z-a.z);
                 }
                 if n>=2 && value.is_finite() {
-                    out.push((if poly.closed { MeasureKind::Perimeter } else { MeasureKind::Length },poly.points.iter().map(|p|[p.x,p.y]).collect(),value,layer));
+                    out.push(PendingMeasurement{kind:if poly.closed { MeasureKind::Perimeter } else { MeasureKind::Length },points:poly.points.iter().map(|p|[p.x,p.y]).collect(),raw_value:value,layer,source_handle:handle});
                 }
             }
             _ => {}
@@ -610,8 +627,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     ui.horizontal(|ui| {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
-            for (kind,points,value,layer) in measurements {
-                let _=state.add_measurement_scoped(kind,points,value,layer,scope);
+            for measurement in measurements {
+                let entity_scope=scope_from_entity_or_active(app,measurement.source_handle,scope);
+                let _=state.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,&entity_scope);
             }
         }
         if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
@@ -970,6 +988,13 @@ mod tests {
         let mut state=State::default();
         let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
+    }
+
+    #[test]
+    fn count_measurements_stay_one_record_per_selected_entity_for_individual_scope() {
+        let pending=PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:"DEVICE".into(),source_handle:cadcraft_doc::Handle(1)};
+        assert_eq!(pending.raw_value,1.0);
+        assert_eq!(pending.source_handle,cadcraft_doc::Handle(1));
     }
 
     #[test]

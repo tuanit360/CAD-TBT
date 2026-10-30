@@ -14,6 +14,8 @@ The following shared files are byte-for-byte identical across the feature heads 
 - `SOURCE_CAD_R65/crates/ui-egui/src/canvas/draw.rs`
 - `SOURCE_CAD_R65/crates/ui-egui/src/canvas/widgets.rs`
 - `SOURCE_CAD_R65/crates/ui-egui/src/lib.rs`
+- `backend/postgres/BIM_COLLABORATION_SCHEMA.sql`
+- `backend/sqlite/BIM_OFFLINE_CACHE_SCHEMA.sql`
 
 `bim_collab.rs` intentionally differs because the unified branch contains later BIM workspace/runtime/QTO integration work.
 
@@ -48,6 +50,10 @@ Each module blob SHA on the unified branch equals the corresponding feature-bran
 - takeoff
 
 No feature module from PR #12-#21 is missing from the unified module declarations.
+
+## Workflow note
+
+`.github/workflows/bim-collaboration.yml` intentionally differs on unified because the build gate was extended to `integration/cad360-unified-r66` and now includes Cargo metadata/workspace check/test gates. The original feature PR workflow blob is otherwise common across PR #12-#21.
 
 ## Database migrations confirmed present byte-for-byte
 

@@ -246,6 +246,57 @@ impl State {
     }
 }
 
+
+#[derive(Default)]
+struct BusinessQuantity {
+    review_records: usize,
+    confirmed_records: usize,
+    excluded_records: usize,
+    length: f64,
+    perimeter: f64,
+    area: f64,
+    count: f64,
+}
+
+fn business_quantities(state: &State, length_factor: f64, area_factor: f64) -> BTreeMap<(String, String, String), BusinessQuantity> {
+    let mut groups = BTreeMap::<(String, String, String), BusinessQuantity>::new();
+    for record in &state.records {
+        let work_group = if record.work_group.trim().is_empty() { "(Chưa gán nhóm)".to_string() } else { record.work_group.trim().to_string() };
+        let work_code = if record.work_code.trim().is_empty() { "(Chưa gán mã)".to_string() } else { record.work_code.trim().to_string() };
+        let layer = if record.layer.trim().is_empty() { "0".to_string() } else { record.layer.clone() };
+        let group = groups.entry((work_group, work_code, layer)).or_default();
+        match record.status {
+            MeasureStatus::Review => {
+                group.review_records += 1;
+            }
+            MeasureStatus::Excluded => {
+                group.excluded_records += 1;
+            }
+            MeasureStatus::Confirmed => {
+                group.confirmed_records += 1;
+                match record.kind {
+                    MeasureKind::Length => group.length += record.raw_value * length_factor,
+                    MeasureKind::Perimeter => group.perimeter += record.raw_value * length_factor,
+                    MeasureKind::Area => group.area += record.raw_value * area_factor,
+                    MeasureKind::Count => group.count += record.raw_value,
+                }
+            }
+        }
+    }
+    groups
+}
+
+fn selected_count_measurements(app: &CadApp) -> Vec<(MeasureKind, Vec<[f64; 2]>, f64, String)> {
+    let selected = app.session.selection();
+    let Ok(drawing) = app.session.doc() else { return Vec::new(); };
+    let mut by_layer = BTreeMap::<String, f64>::new();
+    for handle in selected {
+        let Some(entity) = drawing.model.get(handle) else { continue; };
+        *by_layer.entry(entity.common.layer.clone()).or_default() += 1.0;
+    }
+    by_layer.into_iter().map(|(layer, count)| (MeasureKind::Count, Vec::new(), count, layer)).collect()
+}
+
 #[derive(Default)]
 struct Quantity {
     count: usize,
@@ -482,8 +533,14 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
     let af = lf * lf;
 
     ui.horizontal(|ui| {
-        if ui.button("Thêm đối tượng CAD đang chọn").clicked() {
+        if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
+            for (kind,points,value,layer) in measurements {
+                let _=state.add_measurement(kind,points,value,layer);
+            }
+        }
+        if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
+            let measurements=selected_count_measurements(app);
             for (kind,points,value,layer) in measurements {
                 let _=state.add_measurement(kind,points,value,layer);
             }
@@ -615,7 +672,41 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
     }
 
     ui.separator();
+    ui.strong("Tổng hợp nghiệp vụ đã xác nhận");
+    ui.label("Chỉ record trạng thái Đã xác nhận được cộng vào khối lượng; Review và Loại vẫn hiển thị để kiểm soát.");
+    let business_groups = business_quantities(state, lf, af);
+    egui::ScrollArea::horizontal().show(ui, |ui| {
+        egui::Grid::new("native_qto_business_summary").striped(true).show(ui, |ui| {
+            for h in ["Nhóm công việc","Mã công tác","Layer","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
+            ui.end_row();
+            for ((work_group, work_code, layer), q) in &business_groups {
+                ui.label(work_group);
+                ui.label(work_code);
+                ui.label(layer);
+                ui.label(q.review_records.to_string());
+                ui.label(q.confirmed_records.to_string());
+                ui.label(q.excluded_records.to_string());
+                ui.label(format!("{:.3} {}", q.length, length_unit));
+                ui.label(format!("{:.3} {}", q.perimeter, length_unit));
+                ui.label(format!("{:.3} {}", q.area, area_unit));
+                ui.label(format!("{:.3}", q.count));
+                ui.end_row();
+            }
+        });
+    });
+
+    ui.separator();
     ui.horizontal(|ui| {
+        if ui.button("Sao chép CSV tổng hợp nghiệp vụ").clicked() {
+            let mut csv = String::from("work_group,work_code,layer,review_records,confirmed_records,excluded_records,length,perimeter,area,count,length_unit,area_unit\n");
+            for ((work_group, work_code, layer), q) in &business_groups {
+                let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
+                csv.push_str(&format!("{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{},{}\n",
+                    esc(work_group), esc(work_code), esc(layer), q.review_records, q.confirmed_records, q.excluded_records,
+                    q.length, q.perimeter, q.area, q.count, length_unit, area_unit));
+            }
+            ui.ctx().copy_text(csv);
+        }
         if ui.button("Sao chép CSV tổng hợp Layer").clicked() {
             let mut csv = String::from("layer,entity_count,line_length,arc_length,polyline_length,closed_polyline_area,circle_area,unmeasured_count,length_unit,area_unit\n");
             for (layer, q) in &groups {
@@ -696,6 +787,27 @@ mod tests {
         assert!((reopened.records[0].raw_value * reopened.scale_to_m().unwrap() - 2.5).abs() < 1e-12);
         assert_eq!(reopened.audit, state.audit);
         assert!(reopened.next_audit_sequence > reopened.audit.last().map(|a| a.sequence).unwrap_or(0));
+    }
+
+    #[test]
+    fn business_summary_only_totals_confirmed_records() {
+        let mut state=State{drawing_distance:1000.0,real_distance_m:1.0,..Default::default()};
+        let confirmed=state.add_measurement(MeasureKind::Length,vec![[0.0,0.0],[2500.0,0.0]],2500.0,"A-WALL".into()).unwrap();
+        let review=state.add_measurement(MeasureKind::Area,vec![[0.0,0.0],[1000.0,1000.0]],1_000_000.0,"A-WALL".into()).unwrap();
+        let excluded=state.add_measurement(MeasureKind::Count,Vec::new(),4.0,"A-WALL".into()).unwrap();
+        assert!(state.edit_metadata(confirmed,"Tường".into(),"TT-001".into(),"Tường xây".into(),String::new()));
+        assert!(state.edit_metadata(review,"Tường".into(),"TT-001".into(),"Tường xây".into(),String::new()));
+        assert!(state.edit_metadata(excluded,"Tường".into(),"TT-001".into(),"Tường xây".into(),String::new()));
+        assert!(state.set_status(confirmed,MeasureStatus::Confirmed));
+        assert!(state.set_status(excluded,MeasureStatus::Excluded));
+        let groups=business_quantities(&state,0.001,0.000001);
+        let q=groups.get(&("Tường".into(),"TT-001".into(),"A-WALL".into())).unwrap();
+        assert_eq!(q.review_records,1);
+        assert_eq!(q.confirmed_records,1);
+        assert_eq!(q.excluded_records,1);
+        assert!((q.length-2.5).abs()<1e-12);
+        assert_eq!(q.area,0.0);
+        assert_eq!(q.count,0.0);
     }
 
     #[test]

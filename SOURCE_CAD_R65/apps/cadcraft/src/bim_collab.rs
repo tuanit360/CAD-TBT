@@ -125,6 +125,116 @@ impl Default for ProjectCoordinates {
     }
 }
 
+const XDATA_APP: &str = "TBT360_BIM";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BimEntityMeta {
+    pub floor_id: u64,
+    pub discipline: Discipline,
+    pub owner_account_id: String,
+    pub revision: u64,
+}
+
+impl BimEntityMeta {
+    fn discipline_code(&self) -> &'static str {
+        match self.discipline {
+            Discipline::Architecture => "ARCH",
+            Discipline::Structure => "STRUCT",
+            Discipline::Electrical => "ELEC",
+            Discipline::Plumbing => "PLUMB",
+            Discipline::Hvac => "HVAC",
+            Discipline::Coordination => "COORD",
+        }
+    }
+
+    fn from_discipline_code(code: &str) -> Option<Discipline> {
+        match code {
+            "ARCH" => Some(Discipline::Architecture),
+            "STRUCT" => Some(Discipline::Structure),
+            "ELEC" => Some(Discipline::Electrical),
+            "PLUMB" => Some(Discipline::Plumbing),
+            "HVAC" => Some(Discipline::Hvac),
+            "COORD" => Some(Discipline::Coordination),
+            _ => None,
+        }
+    }
+
+    fn payload(&self) -> String {
+        format!("floor={};discipline={};owner={};revision={}", self.floor_id, self.discipline_code(), self.owner_account_id.replace(';', "_"), self.revision)
+    }
+
+    fn parse(payload: &str) -> Option<Self> {
+        let mut floor_id = None;
+        let mut discipline = None;
+        let mut owner_account_id = None;
+        let mut revision = None;
+        for part in payload.split(';') {
+            let (key, value) = part.split_once('=')?;
+            match key {
+                "floor" => floor_id = value.parse().ok(),
+                "discipline" => discipline = Self::from_discipline_code(value),
+                "owner" => owner_account_id = Some(value.to_string()),
+                "revision" => revision = value.parse().ok(),
+                _ => {}
+            }
+        }
+        Some(Self { floor_id: floor_id?, discipline: discipline?, owner_account_id: owner_account_id?, revision: revision? })
+    }
+}
+
+fn set_bim_meta(common: &mut cadcraft_doc::Common, meta: &BimEntityMeta) {
+    let mut out = Vec::with_capacity(common.xdata.len() + 2);
+    let mut skip_payload = false;
+    for tag in &common.xdata {
+        if tag.code == 1001 && tag.value == XDATA_APP {
+            skip_payload = true;
+            continue;
+        }
+        if skip_payload && tag.code >= 1000 && tag.code <= 1071 {
+            skip_payload = false;
+            continue;
+        }
+        skip_payload = false;
+        out.push(tag.clone());
+    }
+    out.push(cadcraft_doc::RawTag { code: 1001, value: XDATA_APP.into() });
+    out.push(cadcraft_doc::RawTag { code: 1000, value: meta.payload() });
+    common.xdata = out;
+}
+
+fn bim_meta(common: &cadcraft_doc::Common) -> Option<BimEntityMeta> {
+    common.xdata.windows(2).find_map(|pair| {
+        if pair[0].code == 1001 && pair[0].value == XDATA_APP && pair[1].code == 1000 {
+            BimEntityMeta::parse(&pair[1].value)
+        } else {
+            None
+        }
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeOperation {
+    Create,
+    Update,
+    Delete,
+}
+
+#[derive(Clone, Debug)]
+pub struct ChangeItem {
+    pub handle: cadcraft_doc::Handle,
+    pub operation: ChangeOperation,
+    pub base_revision: u64,
+    pub local_revision: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ChangeSet {
+    pub id: u64,
+    pub account_id: String,
+    pub items: Vec<ChangeItem>,
+    pub synced: bool,
+}
+
 pub struct State {
     pub connection: ConnectionMode,
     pub layout: ViewLayout,
@@ -134,6 +244,10 @@ pub struct State {
     pub users: Vec<UserAccess>,
     pub views: Vec<ViewSlot>,
     pub dirty_local_changes: usize,
+    pub active_floor_id: u64,
+    pub active_discipline: Discipline,
+    pub pending_changes: Vec<ChangeSet>,
+    next_change_set_id: u64,
 }
 
 impl Default for State {
@@ -164,11 +278,34 @@ impl Default for State {
             users,
             views,
             dirty_local_changes: 0,
+            active_floor_id: 1,
+            active_discipline: Discipline::Architecture,
+            pending_changes: Vec::new(),
+            next_change_set_id: 1,
         }
     }
 }
 
 impl State {
+    fn queue_update(&mut self, handle: cadcraft_doc::Handle, base_revision: u64, local_revision: u64) {
+        let change = ChangeSet {
+            id: self.next_change_set_id,
+            account_id: self.current_account_id.clone(),
+            items: vec![ChangeItem { handle, operation: ChangeOperation::Update, base_revision, local_revision }],
+            synced: false,
+        };
+        self.next_change_set_id += 1;
+        self.pending_changes.push(change);
+        self.dirty_local_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
+    }
+
+    fn mark_all_synced(&mut self) {
+        for change in &mut self.pending_changes {
+            change.synced = true;
+        }
+        self.dirty_local_changes = 0;
+    }
+
     pub fn active_user(&self) -> Option<&UserAccess> {
         self.users.iter().find(|u| u.account_id == self.current_account_id)
     }
@@ -197,7 +334,7 @@ impl State {
     }
 }
 
-pub fn panel(ui: &mut egui::Ui, state: &mut State) {
+pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     ui.heading("BIM Cộng tác");
     ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
 
@@ -216,6 +353,58 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
             });
         if state.connection == ConnectionMode::Offline {
             ui.label(format!("Thay đổi cục bộ chưa đồng bộ: {}", state.dirty_local_changes));
+        }
+    });
+
+    ui.separator();
+    ui.group(|ui| {
+        ui.strong("Scope thiết kế hiện hành");
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("bim_active_floor")
+                .selected_text(state.floors.iter().find(|f| f.id == state.active_floor_id).map(|f| f.name.as_str()).unwrap_or("Chưa chọn tầng"))
+                .show_ui(ui, |ui| {
+                    for floor in &state.floors {
+                        ui.selectable_value(&mut state.active_floor_id, floor.id, &floor.name);
+                    }
+                });
+            egui::ComboBox::from_id_salt("bim_active_discipline")
+                .selected_text(state.active_discipline.label())
+                .show_ui(ui, |ui| {
+                    for discipline in Discipline::ALL {
+                        ui.selectable_value(&mut state.active_discipline, discipline, discipline.label());
+                    }
+                });
+        });
+
+        let selected = app.session.selection().to_vec();
+        ui.label(format!("Đối tượng đang chọn: {}", selected.len()));
+        if ui.button("Gán tầng / bộ môn / chủ sở hữu cho đối tượng đang chọn").clicked() && !selected.is_empty() {
+            let owner = state.current_account_id.clone();
+            let floor_id = state.active_floor_id;
+            let discipline = state.active_discipline;
+            if let Ok(doc) = app.session.doc_mut() {
+                for handle in selected {
+                    let mut previous_revision = 0;
+                    if let Some(entity) = doc.model.get(handle) {
+                        previous_revision = bim_meta(&entity.common).map(|m| m.revision).unwrap_or(0);
+                    }
+                    let next_revision = previous_revision + 1;
+                    if doc.model.modify(handle, |entity| {
+                        set_bim_meta(&mut entity.common, &BimEntityMeta {
+                            floor_id,
+                            discipline,
+                            owner_account_id: owner.clone(),
+                            revision: next_revision,
+                        });
+                    }) {
+                        state.queue_update(handle, previous_revision, next_revision);
+                    }
+                }
+            }
+        }
+
+        if state.connection == ConnectionMode::Online && state.dirty_local_changes > 0 && ui.button("Đánh dấu đã đồng bộ (mô phỏng server)").clicked() {
+            state.mark_all_synced();
         }
     });
 
@@ -308,6 +497,27 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bim_metadata_roundtrips_through_entity_xdata() {
+        let mut common = cadcraft_doc::Common::default();
+        let meta = BimEntityMeta { floor_id: 7, discipline: Discipline::Electrical, owner_account_id: "user-01".into(), revision: 3 };
+        set_bim_meta(&mut common, &meta);
+        assert_eq!(bim_meta(&common), Some(meta));
+        assert!(common.xdata.iter().any(|t| t.code == 1001 && t.value == XDATA_APP));
+    }
+
+    #[test]
+    fn offline_changes_are_queued_and_can_be_marked_synced() {
+        let mut state = State::default();
+        state.queue_update(cadcraft_doc::Handle(10), 2, 3);
+        assert_eq!(state.dirty_local_changes, 1);
+        assert_eq!(state.pending_changes.len(), 1);
+        assert!(!state.pending_changes[0].synced);
+        state.mark_all_synced();
+        assert_eq!(state.dirty_local_changes, 0);
+        assert!(state.pending_changes[0].synced);
+    }
 
     #[test]
     fn floor_elevation_maps_local_to_world_z() {

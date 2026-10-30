@@ -22,13 +22,18 @@ pub(super) fn tile_xf(r: Rect, tile: &cadcraft_engine::ModelTile) -> Xf {
 pub(super) fn draw_tiles(app: &CadApp, ui: &egui::Ui, tiles: &[(Rect, cadcraft_engine::ModelTile)]) {
     let t = Tokens::get();
     let bg = Rgb(t.canvas.r(), t.canvas.g(), t.canvas.b());
-    for (r, tile) in tiles.iter().filter(|(r, tile)| !tile.active && r.width() >= 1.0 && r.height() >= 1.0) {
+    for (index, (r, tile)) in tiles.iter().enumerate().filter(|(_, (r, tile))| !tile.active && r.width() >= 1.0 && r.height() >= 1.0) {
         let p = ui.painter_at(*r);
         let xf = tile_xf(*r, tile);
         p.rect_filled(*r, 0.0, t.canvas);
         draw_grid(app, &p, &xf);
         if let Some(list) = &app.canvas.list {
-            draw_list(&p, &xf, list, bg, app.session.settings.lwdisplay);
+            if let Some(filter) = app.tile_render_filters.get(index).filter(|f| f.enabled) {
+                draw_list_filtered(&p, &xf, list, bg, app.session.settings.lwdisplay, Some(&filter.primary_handles), 1.0);
+                draw_list_filtered(&p, &xf, list, bg, app.session.settings.lwdisplay, Some(&filter.reference_handles), filter.reference_opacity);
+            } else {
+                draw_list(&p, &xf, list, bg, app.session.settings.lwdisplay);
+            }
         }
         viewport_label(&p, *r);
     }

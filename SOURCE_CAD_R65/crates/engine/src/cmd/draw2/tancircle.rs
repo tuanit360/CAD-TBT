@@ -37,8 +37,9 @@ pub(super) fn run_circle_ttr(s: &mut Session, p: &Value) -> Result<Value> {
     let (h2, p2) = pick_pair("circle.ttr", p, "h2", "p2")?;
     let r = f64_req("circle.ttr", p, "radius")?;
     let c = curves::ttr(tan_obj(s, h1, p1)?, p1, tan_obj(s, h2, p2)?, p2, r).ok_or_else(|| other("Circle does not exist."))?;
-    let h = s.add_entity(circle(c.center, c.radius))?;
-    s.doc_mut()?.header.set_f64("CIRCLERAD", c.radius);
+    let h=s.add_entity(circle(c.center,c.radius))?;
+    crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&[h1,h2]);
+    s.doc_mut()?.header.set_f64("CIRCLERAD",c.radius);
     added(h)
 }
 
@@ -47,8 +48,10 @@ pub(super) fn run_circle_ttt(s: &mut Session, p: &Value) -> Result<Value> {
     let (h2, p2) = pick_pair("circle.ttt", p, "h2", "p2")?;
     let (h3, p3) = pick_pair("circle.ttt", p, "h3", "p3")?;
     let objs = [(tan_obj(s, h1, p1)?, p1), (tan_obj(s, h2, p2)?, p2), (tan_obj(s, h3, p3)?, p3)];
-    let c = curves::ttt(objs).ok_or_else(|| other("Circle does not exist."))?;
-    added(s.add_entity(circle(c.center, c.radius))?)
+    let c=curves::ttt(objs).ok_or_else(||other("Circle does not exist."))?;
+    let h=s.add_entity(circle(c.center,c.radius))?;
+    crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&[h1,h2,h3]);
+    added(h)
 }
 
 /// TTR (two picks + radius) or TTT (three picks). Also used by CIRCLE's `Ttr` option.

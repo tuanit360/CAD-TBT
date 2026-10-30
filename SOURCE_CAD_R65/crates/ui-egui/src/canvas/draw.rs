@@ -11,6 +11,12 @@ fn prim_color32(prim: &cadcraft_render::DPrim, bg: Rgb) -> Color32 {
     Color32::from_rgba_unmultiplied(c.0, c.1, c.2, prim.alpha())
 }
 
+fn prim_color32_opacity(prim: &cadcraft_render::DPrim, bg: Rgb, opacity: f32) -> Color32 {
+    let c = prim.display_rgb(bg);
+    let alpha = ((prim.alpha() as f32) * opacity.clamp(0.0, 1.0)).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgba_unmultiplied(c.0, c.1, c.2, alpha)
+}
+
 fn clip_infinite(xf: &Xf, base: Vec2, dir: Vec2, ray: bool) -> Option<[Pos2; 2]> {
     let wb = xf.world_bounds();
     let far = (wb.width() + wb.height()) * 2.0 + base.dist(wb.center());
@@ -21,11 +27,28 @@ fn clip_infinite(xf: &Xf, base: Vec2, dir: Vec2, ray: bool) -> Option<[Pos2; 2]>
 
 /// Draw a display list.
 pub(crate) fn draw_list(p: &egui::Painter, xf: &Xf, list: &DisplayList, bg: Rgb, lwdisplay: bool) {
+    draw_list_filtered(p, xf, list, bg, lwdisplay, None, 1.0);
+}
+
+pub(crate) fn draw_list_filtered(
+    p: &egui::Painter,
+    xf: &Xf,
+    list: &DisplayList,
+    bg: Rgb,
+    lwdisplay: bool,
+    handles: Option<&[Handle]>,
+    opacity: f32,
+) {
     let vis = xf.world_bounds();
     let mut shapes: Vec<Shape> = Vec::with_capacity(list.prims.len());
     let px = 1.0 / xf.scale;
     for prim in &list.prims {
-        let col = prim_color32(prim, bg);
+        if let Some(handles) = handles
+            && handles.binary_search(&prim.handle).is_err()
+        {
+            continue;
+        }
+        let col = if opacity >= 0.999 { prim_color32(prim, bg) } else { prim_color32_opacity(prim, bg, opacity) };
         let pts = list.points(prim);
         match prim.kind {
             Kind::Polyline => {

@@ -43,8 +43,15 @@ fn blend(s: &mut Session, h1: Handle, p1: Vec2, h2: Handle, p2: Vec2, smooth: bo
     let k2 = curves::entity(s, h2)?.kind;
     let e1 = curve_end(&k1, p1).ok_or_else(|| other("Select an open line, arc, polyline, ellipse arc or spline."))?;
     let e2 = curve_end(&k2, p2).ok_or_else(|| other("Select an open line, arc, polyline, ellipse arc or spline."))?;
-    let sp = blend_spline(e1, e2, smooth).ok_or_else(|| other("The ends coincide."))?;
-    s.add_entity(EntityKind::Spline(sp))
+    let sp=blend_spline(e1,e2,smooth).ok_or_else(||other("The ends coincide."))?;
+    let source1=curves::entity(s,h1)?.common;
+    let source2=curves::entity(s,h2)?.common;
+    let h=s.add_entity(EntityKind::Spline(sp))?;
+    if crate::cmd::modify::tbt360_bim_scope_key(&source1).is_some()
+        && crate::cmd::modify::tbt360_bim_scope_key(&source1)==crate::cmd::modify::tbt360_bim_scope_key(&source2) {
+        s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::copy_tbt360_bim_scope(&source1,&mut e.common,h))?;
+    }
+    Ok(h)
 }
 
 pub(super) fn run_blend(s: &mut Session, p: &Value) -> Result<Value> {

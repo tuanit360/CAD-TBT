@@ -30,6 +30,13 @@ impl MeasureStatus {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scope {
+    pub floor_id: Option<u64>,
+    pub discipline: Option<String>,
+    pub owner_account_id: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct MeasurementRecord {
     id: u64,
@@ -42,6 +49,7 @@ struct MeasurementRecord {
     description: String,
     note: String,
     status: MeasureStatus,
+    scope: Scope,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -113,10 +121,19 @@ impl State {
         self.next_record_id += 1;
         let record = MeasurementRecord {
             id, kind, points, raw_value, layer, work_group: String::new(), work_code: String::new(),
-            description: String::new(), note: String::new(), status: MeasureStatus::Review,
+            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(),
         };
         self.records.push(record.clone());
         self.audit_change(id, "CREATE", None, Some(format!("{:?}:{:.6}", record.kind, record.raw_value)));
+        Ok(id)
+    }
+
+    fn add_measurement_scoped(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String, scope: &Scope) -> Result<u64, String> {
+        let id=self.add_measurement(kind,points,raw_value,layer)?;
+        if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
+            record.scope=scope.clone();
+        }
+        self.audit_change(id,"SCOPE",None,Some(format!("floor={:?};discipline={:?};owner={:?}",scope.floor_id,scope.discipline,scope.owner_account_id)));
         Ok(id)
     }
 
@@ -177,13 +194,18 @@ impl State {
         serde_json::json!({
             "id": record.id, "kind": record.kind.code(), "points": record.points, "raw_value": record.raw_value,
             "layer": record.layer, "work_group": record.work_group, "work_code": record.work_code,
-            "description": record.description, "note": record.note, "status": record.status.code()
+            "description": record.description, "note": record.note, "status": record.status.code(),
+            "scope": {
+                "floor_id": record.scope.floor_id,
+                "discipline": record.scope.discipline,
+                "owner_account_id": record.scope.owner_account_id
+            }
         })
     }
 
     fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
-            "version": 2,
+            "version": 3,
             "drawing_distance": self.drawing_distance,
             "real_distance_m": self.real_distance_m,
             "records": self.records.iter().map(Self::record_json).collect::<Vec<_>>(),
@@ -225,6 +247,10 @@ impl State {
                 points.push([x, y]);
             }
             if kind != MeasureKind::Count && points.is_empty() { return Err("Measurement thiếu hình học".into()); }
+            let scope_value=item.get("scope");
+            let floor_id=scope_value.and_then(|v|v.get("floor_id")).and_then(serde_json::Value::as_u64);
+            let discipline=scope_value.and_then(|v|v.get("discipline")).and_then(serde_json::Value::as_str).map(str::to_string);
+            let owner_account_id=scope_value.and_then(|v|v.get("owner_account_id")).and_then(serde_json::Value::as_str).map(str::to_string);
             records.push(MeasurementRecord {
                 id, kind, points, raw_value,
                 layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
@@ -233,6 +259,7 @@ impl State {
                 description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
                 note: item.get("note").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
                 status,
+                scope: Scope{floor_id,discipline,owner_account_id},
             });
         }
         let mut audit = Vec::new();
@@ -519,7 +546,7 @@ fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     groups
 }
 
-fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
+fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
     let groups = quantities(app);
     ui.heading("Đo bóc khối lượng — CAD native");
     ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở; thay đổi ngay sau khi vẽ, sửa, Undo hoặc Redo.");
@@ -553,7 +580,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
         if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
             let measurements=selected_measurements(app);
             for (kind,points,value,layer) in measurements {
-                let _=state.add_measurement(kind,points,value,layer);
+                let _=state.add_measurement_scoped(kind,points,value,layer,scope);
             }
         }
         if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
@@ -752,8 +779,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
     });
 }
 
-pub fn panel(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
-    draw_contents(ui, app, state);
+pub fn panel(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Scope) {
+    draw_contents(ui, app, state, scope);
 }
 
 #[cfg(test)]

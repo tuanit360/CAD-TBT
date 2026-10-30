@@ -430,15 +430,81 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
     });
 
     ui.separator();
-    if ui.button("Sao chép bảng CSV").clicked() {
-        let mut csv = String::from("layer,entity_count,line_length,arc_length,polyline_length,closed_polyline_area,circle_area,unmeasured_count,length_unit,area_unit\n");
-        for (layer, q) in &groups {
-            let safe = format!("\"{}\"", layer.replace('"', "\"\""));
-            csv.push_str(&format!("{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{}\n",
-                safe, q.count, q.line_length * lf, q.arc_length * lf, q.polyline_length * lf, q.closed_area * af, q.circle_area * af, q.unsupported, length_unit, area_unit));
+    ui.horizontal(|ui| {
+        if ui.button("Hoàn tác phép đo").clicked() { let _ = state.undo_measurement_change(); }
+        if ui.button("Làm lại phép đo").clicked() { let _ = state.redo_measurement_change(); }
+        ui.label(format!("{} record đo • {} audit", state.records.len(), state.audit.len()));
+    });
+
+    if !state.records.is_empty() {
+        ui.strong("Phép đo nghiệp vụ");
+        let mut action: Option<(u64, u8)> = None;
+        egui::ScrollArea::horizontal().show(ui, |ui| {
+            egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
+                for h in ["ID","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
+                ui.end_row();
+                for record in &state.records {
+                    let value = match record.kind {
+                        MeasureKind::Area => record.raw_value * af,
+                        MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
+                        MeasureKind::Count => record.raw_value,
+                    };
+                    let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "lần" };
+                    ui.label(record.id.to_string());
+                    ui.label(match record.kind { MeasureKind::Length=>"Chiều dài", MeasureKind::Area=>"Diện tích", MeasureKind::Perimeter=>"Chu vi", MeasureKind::Count=>"Đếm" });
+                    ui.label(&record.layer);
+                    ui.label(&record.work_group);
+                    ui.label(&record.work_code);
+                    ui.label(&record.description);
+                    ui.label(format!("{value:.3} {unit}"));
+                    ui.label(match record.status { MeasureStatus::Review=>"Review", MeasureStatus::Confirmed=>"Đã xác nhận", MeasureStatus::Excluded=>"Loại" });
+                    ui.horizontal(|ui| {
+                        if ui.small_button("✓").on_hover_text("Xác nhận").clicked() { action=Some((record.id,1)); }
+                        if ui.small_button("⊘").on_hover_text("Loại khỏi khối lượng").clicked() { action=Some((record.id,2)); }
+                        if ui.small_button("×").on_hover_text("Xóa phép đo").clicked() { action=Some((record.id,3)); }
+                    });
+                    ui.end_row();
+                }
+            });
+        });
+        if let Some((id, kind)) = action {
+            match kind {
+                1 => { let _ = state.set_status(id, MeasureStatus::Confirmed); }
+                2 => { let _ = state.set_status(id, MeasureStatus::Excluded); }
+                3 => { let _ = state.delete_measurement(id); }
+                _ => {}
+            }
         }
-        ui.ctx().copy_text(csv);
     }
+
+    ui.separator();
+    ui.horizontal(|ui| {
+        if ui.button("Sao chép CSV tổng hợp Layer").clicked() {
+            let mut csv = String::from("layer,entity_count,line_length,arc_length,polyline_length,closed_polyline_area,circle_area,unmeasured_count,length_unit,area_unit\n");
+            for (layer, q) in &groups {
+                let safe = format!("\"{}\"", layer.replace('"', "\"\""));
+                csv.push_str(&format!("{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{}\n",
+                    safe, q.count, q.line_length * lf, q.arc_length * lf, q.polyline_length * lf, q.closed_area * af, q.circle_area * af, q.unsupported, length_unit, area_unit));
+            }
+            ui.ctx().copy_text(csv);
+        }
+        if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
+            let mut csv = String::from("id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
+            for record in &state.records {
+                let converted = match record.kind {
+                    MeasureKind::Area => record.raw_value * af,
+                    MeasureKind::Length | MeasureKind::Perimeter => record.raw_value * lf,
+                    MeasureKind::Count => record.raw_value,
+                };
+                let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
+                let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
+                csv.push_str(&format!("{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
+                    record.id, record.kind.code(), esc(&record.layer), esc(&record.work_group), esc(&record.work_code),
+                    esc(&record.description), esc(&record.note), record.raw_value, converted, unit, record.status.code()));
+            }
+            ui.ctx().copy_text(csv);
+        }
+    });
 }
 
 pub fn panel(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {

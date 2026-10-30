@@ -9,7 +9,7 @@ use cadcraft_engine::Session;
 use cadcraft_engine::cmd::file::{IoHooks, set_io};
 use cadcraft_engine::doc::color::Color;
 use cadcraft_engine::doc::geom::Vec3;
-use cadcraft_engine::doc::{Block, Circle, Drawing, Entity, EntityKind, Handle, Insert, Layer, Line, Linetype, MAX_BLOCK_DEPTH, XrefStatus};
+use cadcraft_engine::doc::{Block, Circle, Common, Drawing, Entity, EntityKind, Handle, Insert, Layer, Line, Linetype, RawTag, MAX_BLOCK_DEPTH, XrefStatus};
 use serde_json::json;
 
 fn hooks() {
@@ -37,6 +37,21 @@ fn line(d: &mut Drawing, layer: &str, a: (f64, f64), b: (f64, f64)) {
     let mut e = Entity::new(h, EntityKind::Line(Line { a: Vec3::new(a.0, a.1, 0.0), b: Vec3::new(b.0, b.1, 0.0) }));
     e.common.layer = layer.into();
     d.model.push(e);
+}
+
+fn bim_common(handle:Handle,revision:u64)->Common {
+    let mut c=Common::default();
+    c.xdata=vec![
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision={revision};entity={}",handle.hex())},
+    ];
+    c
+}
+
+fn bim_payload(e:&Entity)->Option<&str> {
+    e.common.xdata.windows(2).find_map(|w|{
+        (w[0].code==1001&&w[0].value=="TBT360_BIM"&&w[1].code==1000).then_some(w[1].value.as_str())
+    })
 }
 
 fn insert(block: &str, x: f64) -> EntityKind {
@@ -149,6 +164,56 @@ fn attach_loads_the_file_and_saving_keeps_only_the_reference() {
     assert_eq!(status(&t, "site"), Some(XrefStatus::Loaded));
     assert_eq!(objects(&t, "site"), 2);
     assert!(has_layer(&t, "site|Walls"));
+}
+
+#[test]
+fn xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_revision() {
+    hooks();
+    let dir=folder("bim-reload");
+
+    let mut source=Drawing::new_metric();
+    let source_handle=source.new_handle();
+    let mut source_entity=Entity::new(source_handle,EntityKind::Line(Line{a:Vec3::ZERO,b:Vec3::new(10.0,0.0,0.0)}));
+    source_entity.common=bim_common(source_handle,7);
+    source.model.push(source_entity);
+    save(&source,&dir.join("site.dxf"));
+
+    let host=dir.join("host.dxf");
+    let mut host_doc=host_with(&[("site.dxf",false)]);
+    let root=host_doc.model.first().unwrap().handle;
+    host_doc.modify_entity(root,|e|e.common=bim_common(root,3)).unwrap();
+    save(&host_doc,&host);
+
+    let mut s=Session::new();
+    open(&mut s,&host);
+    let loaded=s.doc().unwrap().block("site").unwrap();
+    assert_eq!(loaded.entities.len(),1);
+    let member=loaded.entities.first().unwrap();
+    let payload=bim_payload(member).expect("xref member BIM payload");
+    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"));
+    assert!(payload.contains(&format!("entity={}",member.handle.hex())));
+    assert_ne!(member.handle,source_handle,"xref loader remaps host handles");
+
+    let root_payload=bim_payload(s.doc().unwrap().entity(root).unwrap()).unwrap();
+    assert!(root_payload.contains("revision=3"));
+
+    let mut changed=Drawing::new_metric();
+    let changed_handle=changed.new_handle();
+    let mut changed_entity=Entity::new(changed_handle,EntityKind::Line(Line{a:Vec3::ZERO,b:Vec3::new(25.0,0.0,0.0)}));
+    changed_entity.common=bim_common(changed_handle,9);
+    changed.model.push(changed_entity);
+    save(&changed,&dir.join("site.dxf"));
+
+    s.execute("-xref",&json!({"option":"reload","names":"site"})).unwrap();
+    let d=s.doc().unwrap();
+    let reloaded=d.block("site").unwrap();
+    let member=reloaded.entities.first().unwrap();
+    let payload=bim_payload(member).expect("reloaded xref member BIM payload");
+    assert!(payload.contains("revision=9"));
+    assert!(payload.contains(&format!("entity={}",member.handle.hex())));
+
+    let root_payload=bim_payload(d.entity(root).unwrap()).unwrap();
+    assert!(root_payload.contains("revision=4"),"block-definition reload invalidates root INSERT exactly once: {root_payload}");
 }
 
 #[test]

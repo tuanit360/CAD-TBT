@@ -3,7 +3,7 @@ name: CAD360 R67 Unified Single App CI
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, integration/cad360-unified-r66]
+    branches: [integration/cad360-unified-r67]
     paths:
       - 'SOURCE_CAD_R65/**'
       - 'installer/**'
@@ -11,9 +11,9 @@ on:
   push:
     branches:
       - 'integration/cad360-unified-r67'
-      - 'integration/cad360-unified-r66'
     paths:
       - 'SOURCE_CAD_R65/**'
+      - 'installer/**'
       - '.github/workflows/parallel-r66.yml'
 
 concurrency:
@@ -72,6 +72,18 @@ jobs:
         run: |
           $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
           if ($main -notmatch "CAD 360 Việt Nam - TBT") { throw "CAD360 product title missing" }
+      - name: Verify one unified CAD + BIM + QTO application
+        shell: pwsh
+        run: |
+          $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
+          foreach ($module in @("mod takeoff;", "mod bim_collab;", "mod bim_clash;", "mod bim_federation;", "mod bim_coordinates;", "mod bim_workset;")) {
+            if (!$main.Contains($module)) { throw "R67 module missing from single entrypoint: $module" }
+          }
+          foreach ($tab in @("MainTab::Cad", "MainTab::Takeoff", "MainTab::Pdf", "MainTab::Model3d", "MainTab::BimCollab")) {
+            if (!$main.Contains($tab)) { throw "R67 unified navigation missing: $tab" }
+          }
+          if (!(Test-Path "apps/cadcraft/src/takeoff.rs") -or !(Test-Path "apps/cadcraft/src/bim_collab.rs")) { throw "CAD/BIM/QTO entrypoint files missing" }
+          Write-Host "R67 CAD/BIM/QTO single-entrypoint source gate passed"
 
   lane-4-qto-bim:
     name: "4 - QTO and BIM"
@@ -150,6 +162,14 @@ jobs:
           Copy-Item "$bin/cadcraft-cli.exe" "$out/cadcraft-cli.exe"
           & "$out/cadcraft-cli.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
+          foreach ($name in @("CAD360.exe", "cadcraft-cli.exe")) {
+            $exe = Join-Path $out $name
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $exe))
+            if ($bytes.Length -lt 100000 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Invalid Windows PE: $name" }
+            $offset = [BitConverter]::ToInt32($bytes, 0x3C)
+            if ([BitConverter]::ToUInt32($bytes, $offset) -ne 0x4550 -or [BitConverter]::ToUInt16($bytes, $offset + 4) -ne 0x8664) { throw "Invalid x64 architecture: $name" }
+          }
+          Get-ChildItem $out -Filter "*.exe" | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Set-Content "$out/SHA256SUMS.txt"
           "CAD360 Viet Nam - TBT Portable x64. Run CAD360.exe." | Set-Content "$out/README.txt" -Encoding UTF8
           Compress-Archive -Path "$out/*" -DestinationPath "portable/CAD360_VietNam_TBT_Portable_Win64.zip" -CompressionLevel Optimal -Force
       - uses: actions/upload-artifact@v4

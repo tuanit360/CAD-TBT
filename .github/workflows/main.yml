@@ -93,7 +93,7 @@ jobs:
         shell: pwsh
         run: |
           $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
-          if ($main -notmatch "CAD 2D - TBT 360") { throw "TBT runtime title missing" }
+          if ($main -notmatch "CAD 360 Việt Nam - TBT") { throw "TBT runtime title missing" }
 
   regression-tests:
     name: "4 - Regression and Data Tests"

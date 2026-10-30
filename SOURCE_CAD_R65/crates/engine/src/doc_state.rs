@@ -40,8 +40,9 @@ pub struct DocState {
 static NEXT_UID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl DocState {
-    pub fn new(doc: Drawing, title: &str, path: Option<String>) -> Self {
-        let doc = Arc::new(doc);
+    pub fn new(mut doc:Drawing,title:&str,path:Option<String>)->Self {
+        crate::bim_runtime::normalize_drawing(&mut doc);
+        let doc=Arc::new(doc);
         DocState {
             saved: doc.clone(),
             doc,

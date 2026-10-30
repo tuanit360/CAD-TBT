@@ -66,21 +66,6 @@ jobs:
           & "./target/release/cadcraft-cli.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "R65 CLI smoke test failed" }
 
-      - name: Package Portable
-        shell: pwsh
-        run: |
-          $output = "../TBT360_CAD_Portable"
-          New-Item -ItemType Directory -Force -Path $output
-          Copy-Item "target/release/cadcraft.exe", "target/release/cadcraft-cli.exe" -Destination $output
-          Compress-Archive -Path "$output/*" -DestinationPath "../TBT360_CAD_Portable.zip" -Force
-
-      - name: Upload Portable
-        uses: actions/upload-artifact@v4
-        with:
-          name: TBT360_CAD_R65_Windows_Portable
-          path: TBT360_CAD_Portable.zip
-          if-no-files-found: error
-
       - name: Install Inno Setup compiler
         shell: pwsh
         run: |
@@ -97,11 +82,11 @@ jobs:
           $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
           & $iscc "/Qp" "../installer/TBT360_CAD_R65.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
-          if (!(Test-Path "../dist/TBT360_CAD_R65_Setup.exe")) { throw "Setup EXE not created" }
+          if (!(Test-Path "../dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE not created" }
 
       - name: Upload Windows Setup
         uses: actions/upload-artifact@v4
         with:
-          name: TBT360_CAD_R65_Windows_Setup
-          path: dist/TBT360_CAD_R65_Setup.exe
+          name: CAD360_VietNam_TBT_Windows_Setup
+          path: dist/CAD360_VietNam_TBT_Setup.exe
           if-no-files-found: error

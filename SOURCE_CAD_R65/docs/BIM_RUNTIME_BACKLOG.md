@@ -68,10 +68,7 @@ Persistence contracts now added:
 - DXF roundtrip keeps handle plus full TBT360_BIM floor/discipline/owner/revision/entity payload across two consecutive reopen cycles.
 - DWG R2018 roundtrip has a dedicated TBT360_BIM identity regression through the existing DWG bridge.
 
-Still requires runtime evidence rather than more command patches:
-- WBLOCK -> INSERT roundtrip.
-- System clipboard DXF roundtrip.
-- XREF reload from a real external file.
+Real-file regression contracts are now present for WBLOCK -> INSERT, system clipboard DXF and XREF reload. They still need an actual test runner log before being marked PASS.
 
 ## QTO-specific remaining work
 
@@ -87,9 +84,14 @@ Closed / foundation complete:
 - Nested auto-relink intentionally refuses guessing when a path breaks; no fake model-space handles are created.
 - Root INSERT remains the revision/scope anchor, so block-definition runtime invalidation makes nested QTO stale correctly.
 
+Closed additionally:
+- QTO UI can create nested v4 provenance records from selected Block/Array root references by enumerating measurable leaf members.
+- Real-file XREF reload regression now checks member TBT360_BIM preservation, remapped entity identity and one-time root INSERT revision invalidation.
+- System clipboard uses a real DXF writer/reader regression to prove scope/revision preservation and pasted identity remap.
+- WBLOCK -> INSERT real-file regression proves BIM member persistence and EXPLODE scope propagation.
+
 Remaining:
-- UI picking/creation of nested source_path records from rendered nested members.
-- XREF reload/remap source identity across a real external-file regression.
+- Direct click-to-pick one nested rendered member (current UI selects a root Block/Array then enumerates its measurable leaves).
 - Multi-source derived entity provenance beyond the shared source-scope helper.
 - Optional explicit nested-path relink UX if a user chooses the replacement path manually.
 - Count remains existence/scope based, not coordinate based.

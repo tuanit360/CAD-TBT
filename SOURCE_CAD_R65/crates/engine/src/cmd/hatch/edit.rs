@@ -130,14 +130,18 @@ fn separate(s: &mut Session, handle: Handle) -> Result<Vec<Handle>> {
     for loops in rest {
         let mut nh = Hatch { loops, ..h.clone() };
         nh.associative = h.associative && nh.loops.iter().all(|l| !l.sources.is_empty());
-        let n = d.add(&space, common.clone(), EntityKind::Hatch(nh))?;
-        if let Some(st) = d.space_mut(&space) {
+        let n=d.add(&space,common.clone(),EntityKind::Hatch(nh))?;
+        d.modify_entity(n,|e|crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,n))?;
+        if let Some(st)=d.space_mut(&space) {
             st.send_to_back(n);
         }
         out.push(n);
     }
     let kept = Hatch { loops: first, ..h };
-    d.modify_entity(handle, |e| e.kind = EntityKind::Hatch(kept))?;
+    d.modify_entity(handle,|e|{
+        e.kind=EntityKind::Hatch(kept);
+        crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,handle);
+    })?;
     Ok(out)
 }
 
@@ -486,7 +490,10 @@ pub(super) fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
                 created.extend(new);
             }
         }
-        s.doc_mut()?.modify_entity(*handle, |e| e.kind = EntityKind::Hatch(h))?;
+        s.doc_mut()?.modify_entity(*handle,|e|{
+            e.kind=EntityKind::Hatch(h);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*handle);
+        })?;
         if bool_or(p, "separate", false) {
             created.extend(separate(s, *handle)?);
         }

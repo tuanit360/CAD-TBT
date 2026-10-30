@@ -190,7 +190,7 @@ fn xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_
     assert_eq!(loaded.entities.len(),1);
     let member=loaded.entities.iter().next().unwrap();
     let payload=bim_payload(member).expect("xref member BIM payload");
-    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"));
+    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"), "loaded XREF BIM payload: {payload}");
     assert!(payload.contains(&format!("entity={}",member.handle.hex())));
     assert_ne!(member.handle,source_handle,"xref loader remaps host handles");
 
@@ -209,7 +209,7 @@ fn xref_reload_preserves_bim_xdata_repairs_member_identity_and_invalidates_root_
     let reloaded=d.block("site").unwrap();
     let member=reloaded.entities.iter().next().unwrap();
     let payload=bim_payload(member).expect("reloaded xref member BIM payload");
-    assert!(payload.contains("revision=9"));
+    assert!(payload.contains("revision=9"), "reloaded XREF BIM payload: {payload}");
     assert!(payload.contains(&format!("entity={}",member.handle.hex())));
 
     let root_payload=bim_payload(d.entity(root).unwrap()).unwrap();

@@ -29,9 +29,16 @@ mod takeoff;
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum MainTab {
+    #[default]
+    Cad,
+    Takeoff,
+}
+
 struct App {
     cad: CadApp,
-    show_takeoff: bool,
+    active_tab: MainTab,
     spacemouse: spacemouse::SpaceMouse,
     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
     desktop_theme: desktop_theme::DesktopTheme,
@@ -113,13 +120,13 @@ impl eframe::App for App {
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.horizontal(|ui| {
-            if ui.button("Đo bóc / Takeoff").clicked() {
-                self.show_takeoff = !self.show_takeoff;
-            }
+            ui.selectable_value(&mut self.active_tab, MainTab::Cad, "CAD");
+            ui.selectable_value(&mut self.active_tab, MainTab::Takeoff, "ĐO BÓC");
         });
-        self.cad.ui(ui);
-        if self.show_takeoff {
-            takeoff::show(ui.ctx(), &mut self.show_takeoff, &self.cad);
+        ui.separator();
+        match self.active_tab {
+            MainTab::Cad => self.cad.ui(ui),
+            MainTab::Takeoff => takeoff::panel(ui, &self.cad),
         }
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
@@ -421,7 +428,7 @@ fn main() -> eframe::Result {
                 desktop_theme,
                 system_animations,
                 cad: app,
-                show_takeoff: false,
+                active_tab: MainTab::default(),
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,

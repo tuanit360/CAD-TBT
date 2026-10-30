@@ -6,10 +6,63 @@ use std::collections::BTreeMap;
 use cadcraft_doc::EntityKind;
 use cadcraft_ui_egui::CadApp;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MeasureKind { Length, Area, Perimeter, Count }
+
+impl MeasureKind {
+    fn code(self) -> &'static str {
+        match self { Self::Length => "length", Self::Area => "area", Self::Perimeter => "perimeter", Self::Count => "count" }
+    }
+    fn parse(value: &str) -> Option<Self> {
+        match value { "length" => Some(Self::Length), "area" => Some(Self::Area), "perimeter" => Some(Self::Perimeter), "count" => Some(Self::Count), _ => None }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MeasureStatus { Review, Confirmed, Excluded }
+
+impl MeasureStatus {
+    fn code(self) -> &'static str {
+        match self { Self::Review => "review", Self::Confirmed => "confirmed", Self::Excluded => "excluded" }
+    }
+    fn parse(value: &str) -> Option<Self> {
+        match value { "review" => Some(Self::Review), "confirmed" => Some(Self::Confirmed), "excluded" => Some(Self::Excluded), _ => None }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct MeasurementRecord {
+    id: u64,
+    kind: MeasureKind,
+    points: Vec<[f64; 2]>,
+    raw_value: f64,
+    layer: String,
+    work_group: String,
+    work_code: String,
+    description: String,
+    note: String,
+    status: MeasureStatus,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct AuditEntry {
+    sequence: u64,
+    record_id: u64,
+    action: String,
+    before: Option<String>,
+    after: Option<String>,
+}
+
 #[derive(Default)]
 pub struct State {
     drawing_distance: f64,
     real_distance_m: f64,
+    records: Vec<MeasurementRecord>,
+    audit: Vec<AuditEntry>,
+    next_record_id: u64,
+    next_audit_sequence: u64,
+    undo: Vec<Vec<MeasurementRecord>>,
+    redo: Vec<Vec<MeasurementRecord>>,
 }
 
 impl State {
@@ -21,20 +74,130 @@ impl State {
         }
     }
 
+    fn snapshot(&mut self) {
+        self.undo.push(self.records.clone());
+        if self.undo.len() > 100 { self.undo.remove(0); }
+        self.redo.clear();
+    }
+
+    fn audit_change(&mut self, record_id: u64, action: &str, before: Option<String>, after: Option<String>) {
+        self.next_audit_sequence = self.next_audit_sequence.max(1);
+        self.audit.push(AuditEntry { sequence: self.next_audit_sequence, record_id, action: action.into(), before, after });
+        self.next_audit_sequence += 1;
+    }
+
+    fn add_measurement(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String) -> Result<u64, String> {
+        if !raw_value.is_finite() || raw_value < 0.0 { return Err("Giá trị phép đo không hợp lệ".into()); }
+        if kind != MeasureKind::Count && points.is_empty() { return Err("Phép đo chưa có điểm hình học".into()); }
+        self.snapshot();
+        self.next_record_id = self.next_record_id.max(1);
+        let id = self.next_record_id;
+        self.next_record_id += 1;
+        let record = MeasurementRecord {
+            id, kind, points, raw_value, layer, work_group: String::new(), work_code: String::new(),
+            description: String::new(), note: String::new(), status: MeasureStatus::Review,
+        };
+        self.records.push(record.clone());
+        self.audit_change(id, "CREATE", None, Some(format!("{:?}:{:.6}", record.kind, record.raw_value)));
+        Ok(id)
+    }
+
+    fn set_status(&mut self, id: u64, status: MeasureStatus) -> bool {
+        let Some(index) = self.records.iter().position(|r| r.id == id) else { return false; };
+        if self.records[index].status == status { return true; }
+        self.snapshot();
+        let before = self.records[index].status;
+        self.records[index].status = status;
+        self.audit_change(id, "STATUS", Some(before.code().into()), Some(status.code().into()));
+        true
+    }
+
+    fn edit_metadata(&mut self, id: u64, work_group: String, work_code: String, description: String, note: String) -> bool {
+        let Some(index) = self.records.iter().position(|r| r.id == id) else { return false; };
+        self.snapshot();
+        let before = format!("{}|{}|{}|{}", self.records[index].work_group, self.records[index].work_code, self.records[index].description, self.records[index].note);
+        self.records[index].work_group = work_group;
+        self.records[index].work_code = work_code;
+        self.records[index].description = description;
+        self.records[index].note = note;
+        let after = format!("{}|{}|{}|{}", self.records[index].work_group, self.records[index].work_code, self.records[index].description, self.records[index].note);
+        self.audit_change(id, "EDIT_METADATA", Some(before), Some(after));
+        true
+    }
+
+    fn delete_measurement(&mut self, id: u64) -> bool {
+        let Some(index) = self.records.iter().position(|r| r.id == id) else { return false; };
+        self.snapshot();
+        let removed = self.records.remove(index);
+        self.audit_change(id, "DELETE", Some(format!("{:?}:{:.6}", removed.kind, removed.raw_value)), None);
+        true
+    }
+
+    fn undo_measurement_change(&mut self) -> bool {
+        let Some(previous) = self.undo.pop() else { return false; };
+        self.redo.push(std::mem::replace(&mut self.records, previous));
+        true
+    }
+
+    fn redo_measurement_change(&mut self) -> bool {
+        let Some(next) = self.redo.pop() else { return false; };
+        self.undo.push(std::mem::replace(&mut self.records, next));
+        true
+    }
+
+    fn record_json(record: &MeasurementRecord) -> serde_json::Value {
+        serde_json::json!({
+            "id": record.id, "kind": record.kind.code(), "points": record.points, "raw_value": record.raw_value,
+            "layer": record.layer, "work_group": record.work_group, "work_code": record.work_code,
+            "description": record.description, "note": record.note, "status": record.status.code()
+        })
+    }
+
     fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
-            "version": 1,
+            "version": 2,
             "drawing_distance": self.drawing_distance,
-            "real_distance_m": self.real_distance_m
+            "real_distance_m": self.real_distance_m,
+            "records": self.records.iter().map(Self::record_json).collect::<Vec<_>>(),
+            "audit": self.audit.iter().map(|a| serde_json::json!({
+                "sequence": a.sequence, "record_id": a.record_id, "action": a.action, "before": a.before, "after": a.after
+            })).collect::<Vec<_>>()
         })
     }
 
     fn load_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
         let drawing_distance = value.get("drawing_distance").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu drawing_distance".to_string())?;
         let real_distance_m = value.get("real_distance_m").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu real_distance_m".to_string())?;
-        let candidate = Self { drawing_distance, real_distance_m };
-        if candidate.scale_to_m().is_none() { return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into()); }
-        *self = candidate;
+        if !(drawing_distance.is_finite() && real_distance_m.is_finite() && drawing_distance > 1e-12 && real_distance_m > 0.0) {
+            return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into());
+        }
+        let mut records = Vec::new();
+        for item in value.get("records").and_then(serde_json::Value::as_array).cloned().unwrap_or_default() {
+            let id = item.get("id").and_then(serde_json::Value::as_u64).ok_or_else(|| "Measurement thiếu id".to_string())?;
+            let kind = item.get("kind").and_then(serde_json::Value::as_str).and_then(MeasureKind::parse).ok_or_else(|| "Measurement kind không hợp lệ".to_string())?;
+            let raw_value = item.get("raw_value").and_then(serde_json::Value::as_f64).ok_or_else(|| "Measurement thiếu raw_value".to_string())?;
+            let status = item.get("status").and_then(serde_json::Value::as_str).and_then(MeasureStatus::parse).unwrap_or(MeasureStatus::Review);
+            let points = item.get("points").and_then(serde_json::Value::as_array).map(|rows| rows.iter().filter_map(|p| {
+                let p=p.as_array()?; Some([p.first()?.as_f64()?, p.get(1)?.as_f64()?])
+            }).collect()).unwrap_or_default();
+            records.push(MeasurementRecord {
+                id, kind, points, raw_value,
+                layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                work_group: item.get("work_group").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                work_code: item.get("work_code").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                note: item.get("note").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                status,
+            });
+        }
+        self.drawing_distance = drawing_distance;
+        self.real_distance_m = real_distance_m;
+        self.records = records;
+        self.next_record_id = self.records.iter().map(|r| r.id).max().unwrap_or(0) + 1;
+        self.next_audit_sequence = 1;
+        self.audit.clear();
+        self.undo.clear();
+        self.redo.clear();
         Ok(())
     }
 }
@@ -290,7 +453,7 @@ mod tests {
 
     #[test]
     fn qto_project_json_roundtrip_preserves_calibration() {
-        let original = State { drawing_distance: 2500.0, real_distance_m: 2.5 };
+        let original = State { drawing_distance: 2500.0, real_distance_m: 2.5, ..Default::default() };
         let mut restored = State::default();
         restored.load_json(&original.to_json()).unwrap();
         assert!((restored.drawing_distance - 2500.0).abs() < 1e-12);
@@ -300,7 +463,7 @@ mod tests {
 
     #[test]
     fn calibration_scale_converts_length_and_area() {
-        let state = State { drawing_distance: 1000.0, real_distance_m: 1.0 };
+        let state = State { drawing_distance: 1000.0, real_distance_m: 1.0, ..Default::default() };
         let scale = state.scale_to_m().unwrap();
         assert!((scale - 0.001).abs() < 1e-12);
         assert!((2500.0 * scale - 2.5).abs() < 1e-12);
@@ -310,8 +473,8 @@ mod tests {
     #[test]
     fn invalid_calibration_is_rejected() {
         assert!(State::default().scale_to_m().is_none());
-        assert!(State { drawing_distance: 0.0, real_distance_m: 1.0 }.scale_to_m().is_none());
-        assert!(State { drawing_distance: 1.0, real_distance_m: 0.0 }.scale_to_m().is_none());
+        assert!(State { drawing_distance: 0.0, real_distance_m: 1.0, ..Default::default() }.scale_to_m().is_none());
+        assert!(State { drawing_distance: 1.0, real_distance_m: 0.0, ..Default::default() }.scale_to_m().is_none());
     }
 
     #[test]

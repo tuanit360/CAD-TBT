@@ -3,7 +3,7 @@
 //! keep the array.
 
 use cadcraft_engine::Session;
-use cadcraft_engine::doc::{ArrayKind, ArrayParams, Drawing, Entity, EntityKind, Handle};
+use cadcraft_engine::doc::{ArrayKind, ArrayParams, Drawing, Entity, EntityKind, Handle, RawTag};
 use cadcraft_engine::geom::{Mat3, Vec2};
 use serde_json::{Value, json};
 
@@ -82,6 +82,46 @@ fn json_arrays_are_associative_by_default() {
     assert_eq!(r["created"], 3);
     assert!(r.get("handle").is_none());
     assert_eq!(model(&s).len(), 4);
+}
+
+#[test]
+fn associative_array_keeps_shared_bim_scope_with_new_identity() {
+    let mut s=Session::new();
+    let h=circle(&mut s,0.0,0.0);
+    let hh=Handle::parse_hex(h.as_str().unwrap()).unwrap();
+    s.doc_mut().unwrap().modify_entity(hh,|e|e.common.xdata.extend([
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",hh.hex())},
+    ])).unwrap();
+    let r=s.execute("arrayrect",&json!({"handles":[h],"rows":1,"cols":3,"colSpacing":2,"associative":true})).unwrap();
+    let arr=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let e=s.doc().unwrap().entity(arr).unwrap();
+    let at=e.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").expect("array keeps BIM scope");
+    let payload=&e.common.xdata[at+1].value;
+    assert!(payload.contains("floor=2"));
+    assert!(payload.contains("discipline=ELEC"));
+    assert!(payload.contains("owner=u1"));
+    assert!(payload.contains("revision=1"));
+    assert!(payload.contains(&format!("entity={}",arr.hex())));
+}
+
+#[test]
+fn associative_array_does_not_merge_different_bim_scopes() {
+    let mut s=Session::new();
+    let a=circle(&mut s,0.0,0.0);
+    let b=circle(&mut s,5.0,0.0);
+    let ah=Handle::parse_hex(a.as_str().unwrap()).unwrap();
+    let bh=Handle::parse_hex(b.as_str().unwrap()).unwrap();
+    for (h,floor) in [(ah,1),(bh,2)] {
+        s.doc_mut().unwrap().modify_entity(h,|e|e.common.xdata.extend([
+            RawTag{code:1001,value:"TBT360_BIM".into()},
+            RawTag{code:1000,value:format!("floor={floor};discipline=ELEC;owner=u1;revision=1;entity={}",h.hex())},
+        ])).unwrap();
+    }
+    let r=s.execute("arrayrect",&json!({"handles":[a,b],"rows":1,"cols":2,"colSpacing":10,"associative":true})).unwrap();
+    let arr=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let e=s.doc().unwrap().entity(arr).unwrap();
+    assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
 }
 
 #[test]

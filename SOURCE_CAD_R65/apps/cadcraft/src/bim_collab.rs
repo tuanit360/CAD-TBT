@@ -130,6 +130,27 @@ pub struct AuthSession {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectSyncState {
+    Clean,
+    Local,
+    Pending,
+    Conflict,
+    Locked,
+}
+
+impl ObjectSyncState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Clean => "Đã đồng bộ",
+            Self::Local => "Local",
+            Self::Pending => "Chờ đồng bộ",
+            Self::Conflict => "Xung đột",
+            Self::Locked => "Đang khóa",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopeStatus {
     NotStarted,
     InProgress,
@@ -645,6 +666,19 @@ impl State {
             }
         }
         self.work_session_known_handles = current_handles;
+    }
+
+    fn object_sync_state(&self, handle: cadcraft_doc::Handle) -> ObjectSyncState {
+        if self.conflicts.iter().any(|c| c.handle == handle) {
+            return ObjectSyncState::Conflict;
+        }
+        if self.leases.iter().any(|l| l.handle == handle && l.account_id != self.current_account_id) {
+            return ObjectSyncState::Locked;
+        }
+        if self.pending_changes.iter().any(|c| !c.synced && c.items.iter().any(|i| i.handle == handle)) {
+            return if self.connection == ConnectionMode::Online { ObjectSyncState::Pending } else { ObjectSyncState::Local };
+        }
+        ObjectSyncState::Clean
     }
 
     fn scope_entity_count(&self, app: &cadcraft_ui_egui::CadApp, floor_id: u64, discipline: Discipline) -> usize {
@@ -1347,6 +1381,9 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         let selected = app.session.selection().to_vec();
         state.update_presence(selected.first().copied());
         ui.label(format!("Đối tượng đang chọn: {}", selected.len()));
+        if let Some(handle) = selected.first().copied() {
+            ui.label(format!("Trạng thái đồng bộ đối tượng {}: {}", handle.hex(), state.object_sync_state(handle).label()));
+        }
         if ui.button("Gán tầng / bộ môn / chủ sở hữu cho đối tượng đang chọn").clicked() && !selected.is_empty() {
             let owner = state.current_account_id.clone();
             let floor_id = state.active_floor_id;
@@ -1605,7 +1642,14 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 ui.label(state.floors.iter().find(|f| f.id == issue.floor_id).map(|f| f.name.as_str()).unwrap_or("?"));
                 ui.label(issue.source_discipline.label());
                 ui.label(issue.target_discipline.label());
-                ui.label(issue.handle.map(|h| h.hex()).unwrap_or_else(|| "-".into()));
+                if let Some(handle) = issue.handle {
+                    let response = ui.button(handle.hex());
+                    if response.clicked() {
+                        app.session.set_selection(vec![handle]);
+                    }
+                } else {
+                    ui.label("-");
+                }
                 ui.text_edit_singleline(&mut issue.assigned_to);
                 egui::ComboBox::from_id_salt(("issue_status", issue.id))
                     .selected_text(issue.status.label())
@@ -1752,6 +1796,24 @@ mod tests {
         assert!(!state.work_session_active);
         assert_eq!(state.active_floor_id, 1);
         assert_eq!(state.active_discipline, Discipline::Architecture);
+    }
+
+    #[test]
+    fn object_sync_state_prioritizes_conflict_and_lock() {
+        let mut state = State::default();
+        let h = cadcraft_doc::Handle(90);
+        assert_eq!(state.object_sync_state(h), ObjectSyncState::Clean);
+        state.pending_changes.push(ChangeSet {
+            id: 1,
+            account_id: "local-owner".into(),
+            items: vec![ChangeItem { handle: h, operation: ChangeOperation::Update, base_revision: 0, local_revision: 1 }],
+            synced: false,
+        });
+        assert_eq!(state.object_sync_state(h), ObjectSyncState::Local);
+        state.connection = ConnectionMode::Online;
+        assert_eq!(state.object_sync_state(h), ObjectSyncState::Pending);
+        state.conflicts.push(SyncConflict { handle: h, base_revision: 0, local_revision: 1, remote_revision: 2 });
+        assert_eq!(state.object_sync_state(h), ObjectSyncState::Conflict);
     }
 
     #[test]

@@ -2,6 +2,34 @@ use super::*;
 
 // ---------------- core operations ----------------
 
+pub(crate) fn refresh_tbt360_bim_copy_identity(common:&mut cadcraft_doc::Common,new_handle:Handle) {
+    let mut in_bim=false;
+    for tag in &mut common.xdata {
+        if tag.code==1001 {
+            in_bim=tag.value.eq_ignore_ascii_case("TBT360_BIM");
+            continue;
+        }
+        if in_bim && tag.code==1000 {
+            let mut parts=tag.value.split(';').map(str::to_string).collect::<Vec<_>>();
+            let mut has_entity=false;
+            let mut has_revision=false;
+            for part in &mut parts {
+                if part.starts_with("entity=") {
+                    *part=format!("entity={}",new_handle.hex());
+                    has_entity=true;
+                } else if part.starts_with("revision=") {
+                    *part="revision=1".into();
+                    has_revision=true;
+                }
+            }
+            if !has_entity { parts.push(format!("entity={}",new_handle.hex())); }
+            if !has_revision { parts.push("revision=1".into()); }
+            tag.value=parts.join(";");
+            break;
+        }
+    }
+}
+
 pub(crate) fn transform_entities(s: &mut Session, hs: &[Handle], m: &Mat3, copy: bool) -> Result<Vec<Handle>> {
     let d = s.doc_mut()?;
     let mut out = Vec::new();
@@ -11,6 +39,7 @@ pub(crate) fn transform_entities(s: &mut Session, hs: &[Handle], m: &Mat3, copy:
             let Some(e) = d.entity(*h).map(|e| (**e).clone()) else { continue };
             let nh = d.new_handle();
             let mut ne = Entity { handle: nh, ..e };
+            refresh_tbt360_bim_copy_identity(&mut ne.common,nh);
             ne.kind.transform(m);
             if let Some(st) = d.space_mut(&sp) {
                 st.push(ne);

@@ -39,6 +39,15 @@ jobs:
         with:
           workspaces: SOURCE_CAD_R65
 
+      - name: Verify CADCraft updater is absent from TBT360 runtime
+        shell: pwsh
+        run: |
+          $hits = git grep -n -E "craft_update|craft-update|suite::CADCRAFT" -- apps/cadcraft/src crates/ui-egui/src apps/cadcraft/Cargo.toml crates/ui-egui/Cargo.toml Cargo.toml
+          if ($LASTEXITCODE -eq 0 -and $hits) {
+            $hits | Write-Host
+            throw "Upstream CADCraft updater code is still referenced by the TBT360 runtime"
+          }
+
       - name: Check CAD workspace
         run: cargo check --workspace --locked
 
@@ -50,6 +59,9 @@ jobs:
 
       - name: Test native Takeoff
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+
+      - name: Test complete CAD workspace
+        run: cargo test --workspace --locked --no-fail-fast
 
       - name: Build CAD R65
         run: cargo build --release --locked -p cadcraft -p cadcraft-cli

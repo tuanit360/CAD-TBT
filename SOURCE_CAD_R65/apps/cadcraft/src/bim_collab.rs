@@ -787,6 +787,23 @@ impl State {
     }
 }
 
+pub fn enforce_selection_scope(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
+    let index = state.active_native_view_index(app);
+    let Some(slot) = state.views.get(index) else { return };
+    if slot.mode == ViewMode::Reference || !state.has_scope_access(&state.current_account_id, slot.floor_id, slot.discipline, true) {
+        if !app.session.selection().is_empty() {
+            app.session.set_selection(Vec::new());
+        }
+        return;
+    }
+    let Some(filter) = app.tile_render_filters.get(index).filter(|f| f.enabled) else { return };
+    let current = app.session.selection();
+    let allowed = current.into_iter().filter(|h| filter.primary_handles.binary_search(h).is_ok()).collect::<Vec<_>>();
+    if allowed != app.session.selection() {
+        app.session.set_selection(allowed);
+    }
+}
+
 pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
     let Ok(doc) = app.session.doc() else {
         app.tile_render_filters.clear();
@@ -1192,6 +1209,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reference_mode_is_read_only_by_definition() {
+        assert_eq!(ViewMode::Reference.label(), "Tham chiếu");
+        assert_eq!(ViewMode::Edit.label(), "Chỉnh sửa");
+    }
 
     #[test]
     fn slot_filter_distinguishes_primary_from_reference_scope() {

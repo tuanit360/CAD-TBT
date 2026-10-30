@@ -698,6 +698,20 @@ fn lwpoly_metrics(vertices: &[cadcraft_doc::geom::PolyVertex], closed: bool) -> 
     }
 }
 
+fn hatch_loop_metrics(loops:&[cadcraft_doc::HatchLoop])->Option<(f64,f64,Vec<[f64;2]>)> {
+    let mut perimeter=0.0;
+    let mut area=0.0;
+    let mut points=Vec::new();
+    for l in loops {
+        let (p,a)=lwpoly_metrics(&l.vertices,true)?;
+        perimeter+=p;
+        area+=if l.outer { a } else { -a };
+        points.extend(l.vertices.iter().map(|v|[v.p.x,v.p.y]));
+    }
+    let area=area.abs();
+    (perimeter.is_finite()&&area.is_finite()).then_some((perimeter,area,points))
+}
+
 fn measurements_for_handle(app:&CadApp, handle:cadcraft_doc::Handle)->Vec<PendingMeasurement> {
     let Ok(drawing)=app.session.doc() else { return Vec::new(); };
     let Some(entity)=drawing.model.get(handle) else { return Vec::new(); };
@@ -738,6 +752,27 @@ fn measurements_for_handle(app:&CadApp, handle:cadcraft_doc::Handle)->Vec<Pendin
                 }
                 if n>=2 && value.is_finite() {
                     out.push(PendingMeasurement{kind:if poly.closed { MeasureKind::Perimeter } else { MeasureKind::Length },points:poly.points.iter().map(|p|[p.x,p.y]).collect(),raw_value:value,layer,source_handle:handle});
+                }
+            }
+            EntityKind::Region(region) => {
+                let area=region.area();
+                let perimeter=region.perimeter();
+                let points=region.loops.iter().flat_map(|l|l.vertices.iter().map(|v|[v.p.x,v.p.y])).collect::<Vec<_>>();
+                if perimeter.is_finite()&&perimeter>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle:handle}); }
+                if area.is_finite()&&area>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle:handle}); }
+            }
+            EntityKind::Hatch(hatch) => {
+                if let Some((perimeter,area,points))=hatch_loop_metrics(&hatch.loops) {
+                    if perimeter>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Perimeter,points:points.clone(),raw_value:perimeter,layer:layer.clone(),source_handle:handle}); }
+                    if area>0.0 { out.push(PendingMeasurement{kind:MeasureKind::Area,points,raw_value:area,layer,source_handle:handle}); }
+                }
+            }
+            EntityKind::Dimension(dm) if !matches!(dm.kind,cadcraft_doc::DimKind::Angular|cadcraft_doc::DimKind::Angular3P) => {
+                let style=drawing.dim_style(&dm.style).cloned().unwrap_or_default();
+                let value=cadcraft_render::dimension_geometry(dm,&style,drawing.header.f64("DIMSCALE",1.0)).measurement.abs();
+                if value.is_finite()&&value>0.0 {
+                    let points=vec![[dm.p13.x,dm.p13.y],[dm.p14.x,dm.p14.y],[dm.p15.x,dm.p15.y],[dm.p16.x,dm.p16.y],[dm.defpt.x,dm.defpt.y]];
+                    out.push(PendingMeasurement{kind:MeasureKind::Length,points,raw_value:value,layer,source_handle:handle});
                 }
             }
             _ => {}

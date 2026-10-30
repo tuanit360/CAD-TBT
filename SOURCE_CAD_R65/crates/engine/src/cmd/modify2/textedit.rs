@@ -29,7 +29,9 @@ pub(crate) fn set_text(s: &mut Session, h: Handle, text: &str) -> Result<()> {
         }
         _ => return Err(other("Select a text, mtext, attribute definition or dimension.")),
     }
-    set_kind(s, h, k)
+    set_kind(s,h,k)?;
+    s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
+    Ok(())
 }
 
 pub(super) fn run_textedit(s: &mut Session, p: &Value) -> Result<Value> {
@@ -47,7 +49,7 @@ pub(super) fn run_textedit(s: &mut Session, p: &Value) -> Result<Value> {
 pub(super) struct TextEditM {
     h: Option<(Handle, String)>,
     /// Edits made in this run, newest last: each object as it was before (the Undo option).
-    edits: Vec<(Handle, EntityKind)>,
+    edits: Vec<(Handle, EntityKind, cadcraft_doc::Common)>,
     /// Single mode: end after one edit (the Mode option; Multiple by default).
     single: bool,
     /// Asking for the edit mode.
@@ -88,9 +90,11 @@ impl Interactive for TextEditM {
             }
             (Some((h, _)), Input::Text(t) | Input::Keyword(t)) => {
                 let h = *h;
-                let before = curves::entity(s, h)?.kind;
-                set_text(s, h, &t)?;
-                self.edits.push((h, before));
+                let before_entity=curves::entity(s,h)?;
+                let before=before_entity.kind.clone();
+                let common=before_entity.common.clone();
+                set_text(s,h,&t)?;
+                self.edits.push((h,before,common));
                 self.h = None;
                 Ok(if self.single { Step::Done } else { Step::Continue })
             }
@@ -101,7 +105,10 @@ impl Interactive for TextEditM {
             (None, Input::Enter) => Ok(Step::Done),
             (None, Input::Keyword(k)) if k == "Undo" => {
                 match self.edits.pop() {
-                    Some((h, before)) => set_kind(s, h, before)?,
+                    Some((h,before,common)) => {
+                        set_kind(s,h,before)?;
+                        s.doc_mut()?.modify_entity(h,|e|e.common=common)?;
+                    },
                     None => s.echo("Everything has been undone"),
                 }
                 Ok(Step::Continue)

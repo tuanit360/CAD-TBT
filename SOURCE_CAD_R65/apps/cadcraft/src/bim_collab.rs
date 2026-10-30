@@ -386,6 +386,13 @@ pub struct ChangeSet {
     pub synced: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConflictResolution {
+    KeepMine,
+    AcceptTheirs,
+    DuplicateMine,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncConflict {
     pub handle: cadcraft_doc::Handle,
@@ -750,6 +757,37 @@ impl State {
         } else {
             self.remote_revisions.push((handle, revision));
         }
+    }
+
+    fn resolve_conflict(&mut self, handle: cadcraft_doc::Handle, resolution: ConflictResolution) {
+        let Some(conflict) = self.conflicts.iter().find(|c| c.handle == handle).cloned() else { return };
+        match resolution {
+            ConflictResolution::KeepMine => {
+                if let Some(change) = self.pending_changes.iter_mut().find(|c| !c.synced && c.items.iter().any(|i| i.handle == handle)) {
+                    for item in &mut change.items {
+                        if item.handle == handle {
+                            item.base_revision = conflict.remote_revision;
+                            item.local_revision = conflict.remote_revision + 1;
+                        }
+                    }
+                }
+                self.audit("CONFLICT_KEEP_MINE", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Remote r{} -> local r{}", conflict.remote_revision, conflict.remote_revision + 1));
+            }
+            ConflictResolution::AcceptTheirs => {
+                for change in &mut self.pending_changes {
+                    if change.items.iter().any(|i| i.handle == handle) {
+                        change.synced = true;
+                    }
+                }
+                self.set_remote_revision(handle, conflict.remote_revision);
+                self.audit("CONFLICT_ACCEPT_THEIRS", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Accepted remote revision {}", conflict.remote_revision));
+            }
+            ConflictResolution::DuplicateMine => {
+                self.audit("CONFLICT_DUPLICATE_MINE", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), "Geometry duplication requires CAD clone command integration");
+            }
+        }
+        self.conflicts.retain(|c| c.handle != handle);
+        self.dirty_local_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
     }
 
     fn sync_pending_changes(&mut self) {
@@ -1353,6 +1391,22 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
         if !state.conflicts.is_empty() {
             ui.colored_label(egui::Color32::LIGHT_RED, format!("Xung đột cần xử lý: {}", state.conflicts.len()));
+            let conflicts = state.conflicts.clone();
+            egui::Grid::new("bim_conflicts").striped(true).show(ui, |ui| {
+                ui.strong("Đối tượng"); ui.strong("Base"); ui.strong("Local"); ui.strong("Remote"); ui.strong("Xử lý"); ui.end_row();
+                for conflict in conflicts {
+                    ui.label(conflict.handle.hex());
+                    ui.label(conflict.base_revision.to_string());
+                    ui.label(conflict.local_revision.to_string());
+                    ui.label(conflict.remote_revision.to_string());
+                    ui.horizontal(|ui| {
+                        if ui.button("Giữ của tôi").clicked() { state.resolve_conflict(conflict.handle, ConflictResolution::KeepMine); }
+                        if ui.button("Nhận bản server").clicked() { state.resolve_conflict(conflict.handle, ConflictResolution::AcceptTheirs); }
+                        if ui.button("Tạo bản sao").clicked() { state.resolve_conflict(conflict.handle, ConflictResolution::DuplicateMine); }
+                    });
+                    ui.end_row();
+                }
+            });
         }
     });
 
@@ -1698,6 +1752,41 @@ mod tests {
         assert!(!state.work_session_active);
         assert_eq!(state.active_floor_id, 1);
         assert_eq!(state.active_discipline, Discipline::Architecture);
+    }
+
+    #[test]
+    fn conflict_resolution_keep_mine_rebases_local_change() {
+        let mut state = State::default();
+        let h = cadcraft_doc::Handle(77);
+        state.pending_changes.push(ChangeSet {
+            id: 1,
+            account_id: "local-owner".into(),
+            items: vec![ChangeItem { handle: h, operation: ChangeOperation::Update, base_revision: 2, local_revision: 3 }],
+            synced: false,
+        });
+        state.conflicts.push(SyncConflict { handle: h, base_revision: 2, local_revision: 3, remote_revision: 5 });
+        state.resolve_conflict(h, ConflictResolution::KeepMine);
+        let item = &state.pending_changes[0].items[0];
+        assert_eq!(item.base_revision, 5);
+        assert_eq!(item.local_revision, 6);
+        assert!(state.conflicts.is_empty());
+    }
+
+    #[test]
+    fn conflict_resolution_accept_theirs_marks_local_change_synced() {
+        let mut state = State::default();
+        let h = cadcraft_doc::Handle(78);
+        state.pending_changes.push(ChangeSet {
+            id: 1,
+            account_id: "local-owner".into(),
+            items: vec![ChangeItem { handle: h, operation: ChangeOperation::Update, base_revision: 1, local_revision: 2 }],
+            synced: false,
+        });
+        state.conflicts.push(SyncConflict { handle: h, base_revision: 1, local_revision: 2, remote_revision: 4 });
+        state.resolve_conflict(h, ConflictResolution::AcceptTheirs);
+        assert!(state.pending_changes[0].synced);
+        assert_eq!(state.remote_revision(h), 4);
+        assert!(state.conflicts.is_empty());
     }
 
     #[test]

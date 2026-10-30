@@ -602,9 +602,7 @@ fn run_reference_set(s: &mut Session, p: &Value) -> Result<Value> {
     let mut d = s.doc()?.clone();
     cadcraft_doc::dynblock::set_property(&mut d, h, name, &value).map_err(|e| bad(cmd, e))?;
     let properties=cadcraft_doc::dynblock::custom_properties(&d,h).map(|(_,p)|p).unwrap_or_default();
-    if let Some(e)=d.entity_mut(h) {
-        crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
-    }
+    d.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     *s.doc_mut()?=d;
     Ok(json!({ "properties": properties }))
 }

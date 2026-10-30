@@ -40,12 +40,15 @@ Covered by the shared helper:
 - CIRCLE TTR / TTT JSON paths.
 - WIPEOUT from a source polyline.
 
-Still needs the same helper wired in:
-- QDIM and other derived dimension creation from picked BIM geometry.
-- MLEADER/LEADER creation when explicitly attached to BIM geometry.
-- BREAKLINE and other derived construction objects.
-- REGION-from-boundary where a new handle is created rather than an in-place boolean.
-- TANCIRCLE interactive path.
+Covered additionally:
+- QDIM outputs inherit only when all selected source objects share one BIM scope.
+- LEADER/MLEADER can inherit explicit source/sources handles through the same helper.
+- TANCIRCLE JSON and interactive TTR/TTT paths preserve their tangent source handles and use the same helper.
+- REGION command replaces the selected closed object in place, so central runtime revision logic covers it.
+- BREAKLINE is point-driven and has no source entity; it intentionally stays unscoped instead of inventing provenance.
+
+Still needs the same helper/policy wired in only where a real source entity exists:
+- Other derived construction objects that explicitly reference source handles.
 - TXT2MTXT multi-source merge policy when the surviving first handle has a different scope from the removed texts.
 - BURST/EXPLODE only for true multi-source merge cases; ordinary exploded pieces are already covered.
 - GROUP copy does not create entities and needs no BIM identity work.
@@ -70,19 +73,27 @@ Still requires persistence/regression evidence rather than more command patches:
 
 ## QTO-specific remaining work
 
+Closed:
+- Measurement extraction for Region and Hatch now uses canonical geometry.
+- Linear/radial/ordinate/arc-length Dimension measurement uses renderer numeric measurement; angular dimensions are intentionally excluded from length totals.
+- Block-definition changes with stable INSERT handles are handled centrally by runtime revision invalidation.
+
+Remaining:
 - Nested block/array element source identity.
-- XREF reload/remap source identity.
-- Multi-source derived entity provenance.
-- Measurement extraction for Region/Hatch/Dimension where desired.
-- Block-definition changes with stable INSERT handles are now handled centrally by runtime revision invalidation.
+- XREF reload/remap source identity across real external-file regression.
+- Multi-source derived entity provenance beyond the shared source-scope helper.
 - Auto-relink ambiguity hardening for imported/remapped files.
 - Count remains existence/scope based, not coordinate based.
 
 ## BIM workspace remaining work
 
-- Reapply native viewport/render filters after workspace load.
-- Make snapshot load transactional: validate into temporary state, then commit.
-- Regression for invalid snapshot leaving current state untouched.
+Closed:
+- Workspace load is transactional for persisted workspace state: a failed load restores the previous snapshot.
+- Invalid-load regression verifies the existing workspace is unchanged.
+- Successful "Mở workspace BIM" immediately reapplies native CAD viewport layout.
+
+Remaining:
+- Renderer/view filtering still needs end-to-end visual regression after workspace reopen.
 
 ## Integration/build remaining work
 

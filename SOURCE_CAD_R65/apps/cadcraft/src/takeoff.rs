@@ -49,6 +49,18 @@ pub struct Scope {
     pub owner_account_id: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SourcePathStep {
+    BlockMember { block: String, member_handle: String },
+    ArrayItem { i: u32, j: u32, level: u32, member_handle: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SourcePath {
+    root_handle: String,
+    steps: Vec<SourcePathStep>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct MeasurementRecord {
     id: u64,
@@ -63,6 +75,7 @@ struct MeasurementRecord {
     status: MeasureStatus,
     scope: Scope,
     source_handle: Option<String>,
+    source_path: Option<SourcePath>,
     source_revision: Option<u64>,
     source_geometry_signature: Option<String>,
 }
@@ -136,7 +149,7 @@ impl State {
         self.next_record_id += 1;
         let record = MeasurementRecord {
             id, kind, points, raw_value, layer, work_group: String::new(), work_code: String::new(),
-            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None, source_revision: None, source_geometry_signature: None,
+            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None, source_path: None, source_revision: None, source_geometry_signature: None,
         };
         self.records.push(record.clone());
         self.audit_change(id, "CREATE", None, Some(format!("{:?}:{:.6}", record.kind, record.raw_value)));
@@ -296,6 +309,42 @@ impl State {
         true
     }
 
+fn source_path_json(path:&SourcePath)->serde_json::Value {
+    serde_json::json!({
+        "root_handle": path.root_handle,
+        "steps": path.steps.iter().map(|step|match step {
+            SourcePathStep::BlockMember{block,member_handle}=>serde_json::json!({"type":"block_member","block":block,"member_handle":member_handle}),
+            SourcePathStep::ArrayItem{i,j,level,member_handle}=>serde_json::json!({"type":"array_item","i":i,"j":j,"level":level,"member_handle":member_handle}),
+        }).collect::<Vec<_>>()
+    })
+}
+
+fn parse_source_path(value:&serde_json::Value)->Result<SourcePath,String> {
+    let root_handle=value.get("root_handle").and_then(serde_json::Value::as_str).ok_or_else(||"QTO source_path thiếu root_handle".to_string())?.to_string();
+    if cadcraft_doc::Handle::parse_hex(&root_handle).is_none() { return Err("QTO source_path root_handle không hợp lệ".into()); }
+    let mut steps=Vec::new();
+    for step in value.get("steps").and_then(serde_json::Value::as_array).cloned().unwrap_or_default() {
+        match step.get("type").and_then(serde_json::Value::as_str) {
+            Some("block_member")=>{
+                let block=step.get("block").and_then(serde_json::Value::as_str).filter(|v|!v.trim().is_empty()).ok_or_else(||"QTO source_path block trống".to_string())?.to_string();
+                let member_handle=step.get("member_handle").and_then(serde_json::Value::as_str).ok_or_else(||"QTO source_path thiếu member_handle".to_string())?.to_string();
+                if cadcraft_doc::Handle::parse_hex(&member_handle).is_none() { return Err("QTO source_path member_handle không hợp lệ".into()); }
+                steps.push(SourcePathStep::BlockMember{block,member_handle});
+            }
+            Some("array_item")=>{
+                let i=step.get("i").and_then(serde_json::Value::as_u64).and_then(|v|u32::try_from(v).ok()).ok_or_else(||"QTO source_path array i không hợp lệ".to_string())?;
+                let j=step.get("j").and_then(serde_json::Value::as_u64).and_then(|v|u32::try_from(v).ok()).ok_or_else(||"QTO source_path array j không hợp lệ".to_string())?;
+                let level=step.get("level").and_then(serde_json::Value::as_u64).and_then(|v|u32::try_from(v).ok()).ok_or_else(||"QTO source_path array level không hợp lệ".to_string())?;
+                let member_handle=step.get("member_handle").and_then(serde_json::Value::as_str).ok_or_else(||"QTO source_path thiếu member_handle".to_string())?.to_string();
+                if cadcraft_doc::Handle::parse_hex(&member_handle).is_none() { return Err("QTO source_path member_handle không hợp lệ".into()); }
+                steps.push(SourcePathStep::ArrayItem{i,j,level,member_handle});
+            }
+            _=>return Err("QTO source_path step type không hợp lệ".into()),
+        }
+    }
+    Ok(SourcePath{root_handle,steps})
+}
+
     fn record_json(record: &MeasurementRecord) -> serde_json::Value {
         serde_json::json!({
             "id": record.id, "kind": record.kind.code(), "points": record.points, "raw_value": record.raw_value,
@@ -307,6 +356,7 @@ impl State {
                 "owner_account_id": record.scope.owner_account_id
             },
             "source_handle": record.source_handle,
+            "source_path": record.source_path.as_ref().map(source_path_json),
             "source_revision": record.source_revision,
             "source_geometry_signature": record.source_geometry_signature
         })
@@ -314,7 +364,7 @@ impl State {
 
     fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
-            "version": 3,
+            "version": 4,
             "drawing_distance": self.drawing_distance,
             "real_distance_m": self.real_distance_m,
             "records": self.records.iter().map(Self::record_json).collect::<Vec<_>>(),
@@ -326,7 +376,7 @@ impl State {
 
     fn load_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
         let version=value.get("version").and_then(serde_json::Value::as_u64).unwrap_or(2);
-        if !matches!(version,2|3) { return Err("Phiên bản QTO project không được hỗ trợ".into()); }
+        if !matches!(version,2|3|4) { return Err("Phiên bản QTO project không được hỗ trợ".into()); }
         let drawing_distance = value.get("drawing_distance").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu drawing_distance".to_string())?;
         let real_distance_m = value.get("real_distance_m").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu real_distance_m".to_string())?;
         if !(drawing_distance.is_finite() && real_distance_m.is_finite()) {
@@ -370,6 +420,10 @@ impl State {
             }
             let source_handle=item.get("source_handle").and_then(serde_json::Value::as_str).map(str::to_string);
             if source_handle.as_deref().is_some_and(|h|cadcraft_doc::Handle::parse_hex(h).is_none()) { return Err("Measurement source_handle không hợp lệ".into()); }
+            let source_path=match item.get("source_path") {
+                Some(value) if !value.is_null()=>Some(parse_source_path(value)?),
+                _=>None,
+            };
             let source_revision=item.get("source_revision").and_then(serde_json::Value::as_u64);
             let source_geometry_signature=item.get("source_geometry_signature").and_then(serde_json::Value::as_str).map(str::to_string);
             records.push(MeasurementRecord {
@@ -382,6 +436,7 @@ impl State {
                 status,
                 scope: Scope{floor_id,discipline,owner_account_id},
                 source_handle,
+                source_path,
                 source_revision,
                 source_geometry_signature,
             });

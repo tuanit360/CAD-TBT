@@ -71,6 +71,24 @@ pub struct Federation {
 }
 
 impl Federation {
+    pub fn mark_stale_against_latest(&mut self, source_model_id:&str, latest_published_revision:u64) -> usize {
+        let mut changed=0;
+        for link in &mut self.links {
+            if link.source_model_id==source_model_id && link.needs_refresh(latest_published_revision) {
+                link.state=LinkState::Stale;
+                changed+=1;
+            }
+        }
+        changed
+    }
+
+    pub fn refresh_link(&mut self, link_id:&str, published_revision:u64) -> bool {
+        let Some(link)=self.links.iter_mut().find(|l|l.id==link_id) else{return false};
+        link.published_revision=Some(published_revision);
+        link.state=LinkState::Loaded;
+        true
+    }
+
     pub fn add_or_replace(&mut self, link: FederatedModelLink) {
         if let Some(existing) = self.links.iter_mut().find(|x| x.id == link.id) {
             *existing = link;
@@ -94,6 +112,21 @@ impl Federation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_link_can_be_refreshed_to_latest_published_revision() {
+        let mut f=Federation::default();
+        f.add_or_replace(FederatedModelLink{
+            id:"L".into(),project_id:"P".into(),source_model_id:"M".into(),source:LinkSource::Ifc,
+            discipline:"STRUCT".into(),owner_account_id:"u".into(),building_id:None,zone_id:None,floor_id:Some("F1".into()),
+            published_revision:Some(2),transform:LinkTransform::default(),opacity:0.3,state:LinkState::Loaded,read_only:true
+        });
+        assert_eq!(f.mark_stale_against_latest("M",3),1);
+        assert_eq!(f.links[0].state,LinkState::Stale);
+        assert!(f.refresh_link("L",3));
+        assert_eq!(f.links[0].published_revision,Some(3));
+        assert_eq!(f.links[0].state,LinkState::Loaded);
+    }
 
     #[test]
     fn external_ifc_link_is_reference_only() {

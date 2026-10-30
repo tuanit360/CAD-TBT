@@ -102,6 +102,31 @@ pub struct UserAccess {
     pub can_view_other_floors: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthStatus {
+    SignedOut,
+    OfflineProfile,
+    OnlineAuthenticated,
+}
+
+#[derive(Clone, Debug)]
+pub struct AuthSession {
+    pub status: AuthStatus,
+    pub account_id: String,
+    pub display_name: String,
+    pub email: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct AccessRule {
+    pub account_id: String,
+    pub floor_id: Option<u64>,
+    pub discipline: Option<Discipline>,
+    pub can_view: bool,
+    pub can_edit: bool,
+}
+
+
 #[derive(Clone, Debug)]
 pub struct ViewSlot {
     pub floor_id: u64,
@@ -298,6 +323,8 @@ pub struct State {
     pub presence: Vec<Presence>,
     pub leases: Vec<ObjectLease>,
     pub conflicts: Vec<SyncConflict>,
+    pub auth: AuthSession,
+    pub access_rules: Vec<AccessRule>,
 }
 
 impl Default for State {
@@ -335,6 +362,18 @@ impl Default for State {
             presence: Vec::new(),
             leases: Vec::new(),
             conflicts: Vec::new(),
+            auth: AuthSession {
+                status: AuthStatus::OfflineProfile,
+                account_id: "local-owner".into(),
+                display_name: "Người dùng hiện tại".into(),
+                email: String::new(),
+            },
+            access_rules: vec![
+                AccessRule { account_id: "local-owner".into(), floor_id: None, discipline: None, can_view: true, can_edit: true },
+                AccessRule { account_id: "struct-01".into(), floor_id: None, discipline: Some(Discipline::Structure), can_view: true, can_edit: true },
+                AccessRule { account_id: "mep-elec-01".into(), floor_id: None, discipline: Some(Discipline::Electrical), can_view: true, can_edit: true },
+                AccessRule { account_id: "mep-water-01".into(), floor_id: None, discipline: Some(Discipline::Plumbing), can_view: true, can_edit: true },
+            ],
         }
     }
 }
@@ -357,6 +396,40 @@ impl State {
             change.synced = true;
         }
         self.dirty_local_changes = 0;
+    }
+
+    fn login_offline(&mut self, account_id: String, display_name: String) {
+        self.auth.status = AuthStatus::OfflineProfile;
+        self.auth.account_id = account_id.clone();
+        self.auth.display_name = display_name;
+        self.auth.email.clear();
+        self.current_account_id = account_id;
+        self.connection = ConnectionMode::Offline;
+    }
+
+    fn login_online_stub(&mut self, account_id: String, display_name: String, email: String) {
+        self.auth.status = AuthStatus::OnlineAuthenticated;
+        self.auth.account_id = account_id.clone();
+        self.auth.display_name = display_name;
+        self.auth.email = email;
+        self.current_account_id = account_id;
+        self.connection = ConnectionMode::Online;
+    }
+
+    fn sign_out(&mut self) {
+        self.auth.status = AuthStatus::SignedOut;
+        self.auth.account_id.clear();
+        self.auth.display_name.clear();
+        self.auth.email.clear();
+    }
+
+    fn has_scope_access(&self, account_id: &str, floor_id: u64, discipline: Discipline, edit: bool) -> bool {
+        self.access_rules.iter().any(|rule| {
+            rule.account_id == account_id
+                && rule.floor_id.is_none_or(|f| f == floor_id)
+                && rule.discipline.is_none_or(|d| d == discipline)
+                && if edit { rule.can_edit } else { rule.can_view }
+        })
     }
 
     fn acquire_lease(&mut self, handle: cadcraft_doc::Handle, revision: u64) -> Result<(), String> {
@@ -400,8 +473,9 @@ impl State {
         if target.account_id == me.account_id {
             return target_floor == active_floor || me.can_view_other_floors;
         }
-        (me.can_view_other_disciplines || target.discipline == me.discipline)
-            && (target_floor == active_floor || me.can_view_other_floors)
+        let broad = (me.can_view_other_disciplines || target.discipline == me.discipline)
+            && (target_floor == active_floor || me.can_view_other_floors);
+        broad && self.has_scope_access(&me.account_id, target_floor, target.discipline, false)
     }
 
     fn viewport_entity_count(&self, app: &cadcraft_ui_egui::CadApp, slot: &ViewSlot) -> usize {
@@ -433,6 +507,32 @@ impl State {
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     ui.heading("BIM Cộng tác");
     ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
+
+    ui.group(|ui| {
+        ui.strong("Đăng nhập / Phiên làm việc");
+        match state.auth.status {
+            AuthStatus::SignedOut => {
+                ui.label("Chưa đăng nhập. Online sẽ nối TBT.Auth/OpenIddict; không lưu mật khẩu trong file CAD.");
+            }
+            AuthStatus::OfflineProfile => {
+                ui.label(format!("Offline: {} ({})", state.auth.display_name, state.auth.account_id));
+            }
+            AuthStatus::OnlineAuthenticated => {
+                ui.label(format!("Online: {} — {}", state.auth.display_name, state.auth.email));
+            }
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Dùng profile offline").clicked() {
+                state.login_offline("local-owner".into(), "Người dùng hiện tại".into());
+            }
+            if ui.button("Mô phỏng đăng nhập TBT.Auth").clicked() {
+                state.login_online_stub("local-owner".into(), "Người dùng hiện tại".into(), "user@tbt.local".into());
+            }
+            if ui.button("Đăng xuất").clicked() {
+                state.sign_out();
+            }
+        });
+    });
 
     ui.horizontal(|ui| {
         ui.label("Chế độ:");
@@ -603,6 +703,20 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         });
     });
 
+    ui.collapsing("Rule quyền chi tiết theo tầng / bộ môn", |ui| {
+        egui::Grid::new("bim_scope_rules").striped(true).show(ui, |ui| {
+            ui.strong("Tài khoản"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
+            for rule in &mut state.access_rules {
+                ui.label(&rule.account_id);
+                ui.label(rule.floor_id.and_then(|id| state.floors.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_else(|| "Tất cả".into()));
+                ui.label(rule.discipline.map(Discipline::label).unwrap_or("Tất cả"));
+                ui.checkbox(&mut rule.can_view, "");
+                ui.checkbox(&mut rule.can_edit, "");
+                ui.end_row();
+            }
+        });
+    });
+
     ui.collapsing("Quyền tài khoản", |ui| {
         egui::Grid::new("bim_access").striped(true).show(ui, |ui| {
             ui.strong("Tài khoản"); ui.strong("Bộ môn"); ui.strong("Sửa"); ui.strong("Xem bộ môn khác"); ui.strong("Xem tầng khác"); ui.end_row();
@@ -626,6 +740,29 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detailed_scope_rule_controls_view_and_edit() {
+        let mut state = State::default();
+        state.access_rules = vec![
+            AccessRule { account_id: "u1".into(), floor_id: Some(2), discipline: Some(Discipline::Electrical), can_view: true, can_edit: false }
+        ];
+        assert!(state.has_scope_access("u1", 2, Discipline::Electrical, false));
+        assert!(!state.has_scope_access("u1", 2, Discipline::Electrical, true));
+        assert!(!state.has_scope_access("u1", 1, Discipline::Electrical, false));
+        assert!(!state.has_scope_access("u1", 2, Discipline::Structure, false));
+    }
+
+    #[test]
+    fn offline_and_online_login_switch_connection_mode() {
+        let mut state = State::default();
+        state.login_online_stub("u1".into(), "User One".into(), "u1@example.com".into());
+        assert_eq!(state.connection, ConnectionMode::Online);
+        assert_eq!(state.auth.status, AuthStatus::OnlineAuthenticated);
+        state.login_offline("u2".into(), "User Two".into());
+        assert_eq!(state.connection, ConnectionMode::Offline);
+        assert_eq!(state.auth.status, AuthStatus::OfflineProfile);
+    }
 
     #[test]
     fn soft_lock_prevents_another_account_from_editing_same_object() {

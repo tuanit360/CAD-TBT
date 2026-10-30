@@ -25,6 +25,7 @@ fn bulge_edge(a: (f64, f64), b: (f64, f64), bulge: f64) -> Option<(f64, f64)> {
     if !chord.is_finite() || !bulge.is_finite() {
         return None;
     }
+    if chord <= 1e-12 && bulge.abs() >= 1e-12 { return None; }
     if bulge.abs() < 1e-12 {
         return Some((chord, 0.0));
     }
@@ -241,6 +242,14 @@ mod tests {
         let vertices = points.iter().map(|&(x, y)|
             PolyVertex::new(Vec2::new(x, y))).collect::<Vec<_>>();
         assert!(lwpoly_metrics(&vertices, true).is_none());
+    }
+
+    #[test]
+    fn nonzero_bulge_with_coincident_endpoints_is_rejected() {
+        assert!(bulge_edge((2.0, 3.0), (2.0, 3.0), 1.0).is_none());
+        let mut vertices = vec![PolyVertex::new(Vec2::new(2.0, 3.0)), PolyVertex::new(Vec2::new(2.0, 3.0))];
+        vertices[0].bulge = 1.0;
+        assert!(lwpoly_metrics(&vertices, false).is_none());
     }
 
     #[test]

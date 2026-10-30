@@ -205,12 +205,17 @@ impl State {
             return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into());
         }
         let mut records = Vec::new();
+        let mut record_ids = std::collections::BTreeSet::new();
         for item in value.get("records").and_then(serde_json::Value::as_array).cloned().unwrap_or_default() {
             let id = item.get("id").and_then(serde_json::Value::as_u64).ok_or_else(|| "Measurement thiếu id".to_string())?;
+            if id == 0 || !record_ids.insert(id) { return Err("Measurement id không hợp lệ hoặc bị trùng".into()); }
             let kind = item.get("kind").and_then(serde_json::Value::as_str).and_then(MeasureKind::parse).ok_or_else(|| "Measurement kind không hợp lệ".to_string())?;
             let raw_value = item.get("raw_value").and_then(serde_json::Value::as_f64).ok_or_else(|| "Measurement thiếu raw_value".to_string())?;
             if !raw_value.is_finite() || raw_value < 0.0 { return Err("Measurement raw_value không hợp lệ".into()); }
-            let status = item.get("status").and_then(serde_json::Value::as_str).and_then(MeasureStatus::parse).unwrap_or(MeasureStatus::Review);
+            let status = match item.get("status").and_then(serde_json::Value::as_str) {
+                Some(value) => MeasureStatus::parse(value).ok_or_else(|| "Measurement status không hợp lệ".to_string())?,
+                None => MeasureStatus::Review,
+            };
             let mut points = Vec::new();
             for point in item.get("points").and_then(serde_json::Value::as_array).cloned().unwrap_or_default() {
                 let pair = point.as_array().ok_or_else(|| "Measurement point không hợp lệ".to_string())?;
@@ -789,6 +794,26 @@ mod tests {
             "audit":[]
         });
         assert!(State::default().load_json(&missing_geometry).is_err());
+    }
+
+    #[test]
+    fn qto_project_rejects_duplicate_ids_and_unknown_status() {
+        let duplicate=serde_json::json!({
+            "drawing_distance":0.0,"real_distance_m":0.0,
+            "records":[
+                {"id":1,"kind":"count","points":[],"raw_value":1.0,"status":"review"},
+                {"id":1,"kind":"count","points":[],"raw_value":2.0,"status":"review"}
+            ],
+            "audit":[]
+        });
+        assert!(State::default().load_json(&duplicate).is_err());
+
+        let bad_status=serde_json::json!({
+            "drawing_distance":0.0,"real_distance_m":0.0,
+            "records":[{"id":1,"kind":"count","points":[],"raw_value":1.0,"status":"unknown"}],
+            "audit":[]
+        });
+        assert!(State::default().load_json(&bad_status).is_err());
     }
 
     #[test]

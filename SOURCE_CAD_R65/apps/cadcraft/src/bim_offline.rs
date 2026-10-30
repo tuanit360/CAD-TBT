@@ -62,6 +62,28 @@ impl OfflineSyncState {
         self.checkpoint.remote_project_revision = remote_revision;
     }
 
+    pub fn acknowledge_synced(&mut self, local_sequence: u64, remote_revision: u64) {
+        if let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) {
+            item.state = QueueState::Synced;
+            item.last_error = None;
+        }
+        self.checkpoint.remote_project_revision = self.checkpoint.remote_project_revision.max(remote_revision);
+    }
+
+    pub fn retry_delay_seconds(&self, local_sequence: u64) -> Option<u64> {
+        let item = self.queue.iter().find(|i| i.local_sequence == local_sequence)?;
+        Some((1u64 << item.retry_count.min(6)).min(60))
+    }
+
+    pub fn mark_retry_error(&mut self, local_sequence: u64, message: String) {
+        if let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) {
+            item.retry_count = item.retry_count.saturating_add(1);
+            item.state = QueueState::Pending;
+            item.last_error = Some(message);
+        }
+        self.connectivity = Connectivity::Degraded;
+    }
+
     pub fn mark_conflict(&mut self, local_sequence: u64, message: String) {
         if let Some(item) = self.queue.iter_mut().find(|i| i.local_sequence == local_sequence) {
             item.state = QueueState::Conflict;
@@ -71,6 +93,19 @@ impl OfflineSyncState {
 
     pub fn pending_count(&self) -> usize {
         self.queue.iter().filter(|i| !matches!(i.state, QueueState::Synced | QueueState::Rejected)).count()
+    }
+
+    #[test]
+    fn retry_backoff_is_bounded_and_acknowledgement_advances_checkpoint() {
+        let mut s=OfflineSyncState::default();
+        let seq=s.enqueue("c1".into());
+        s.mark_retry_error(seq,"network".into());
+        assert_eq!(s.retry_delay_seconds(seq),Some(2));
+        for _ in 0..10 { s.mark_retry_error(seq,"network".into()); }
+        assert_eq!(s.retry_delay_seconds(seq),Some(60));
+        s.acknowledge_synced(seq,12);
+        assert_eq!(s.checkpoint.remote_project_revision,12);
+        assert_eq!(s.pending_count(),0);
     }
 }
 

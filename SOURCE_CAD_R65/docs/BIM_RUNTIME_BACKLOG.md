@@ -40,16 +40,23 @@ These create new entities and therefore runtime cannot infer which source BIM sc
 - BURST/EXPLODE variants where multiple source scopes can contribute to one result.
 - GROUP copy does not create entities and needs no BIM identity work.
 
-## Still needs import/remap policy
+## Import/remap policy now centralized
 
-Runtime repairs `entity=` only when TBT360_BIM survived the import/copy. These paths still need explicit guarantees that BIM XDATA is carried:
-- XREF ATTACH / RELOAD / BIND.
-- INSERT_FILE / external DXF/DWG insert.
-- XREF nested load/bind namespace remapping.
-- Clipboard between drawings.
-- WBLOCK/INSERT roundtrip regression.
-- Exchange/import paths that allocate new handles.
-- DWG reader/writer roundtrip of TBT360_BIM XDATA.
+Closed by runtime + adopt/remap normalization:
+- XREF load/reload model objects and nested block objects.
+- XBIND copies of dependent blocks.
+- INSERT_FILE model and nested block entities.
+- Clipboard/cross-drawing nested block definitions.
+- Any drawing entering a Session is normalized once through DocState::new.
+- Every post-command pass re-normalizes real handles for model/layout/block entities.
+- A changed block definition automatically invalidates existing BIM INSERT references once, without double-bumping commands that already did it.
+
+Still requires persistence/regression evidence rather than more command patches:
+- DXF roundtrip.
+- DWG roundtrip.
+- WBLOCK -> INSERT roundtrip.
+- System clipboard DXF roundtrip.
+- XREF reload from a real external file.
 
 ## QTO-specific remaining work
 
@@ -57,7 +64,7 @@ Runtime repairs `entity=` only when TBT360_BIM survived the import/copy. These p
 - XREF reload/remap source identity.
 - Multi-source derived entity provenance.
 - Measurement extraction for Region/Hatch/Dimension where desired.
-- Stale detection when a block definition changes but the INSERT handle stays the same.
+- Block-definition changes with stable INSERT handles are now handled centrally by runtime revision invalidation.
 - Auto-relink ambiguity hardening for imported/remapped files.
 - Count remains existence/scope based, not coordinate based.
 

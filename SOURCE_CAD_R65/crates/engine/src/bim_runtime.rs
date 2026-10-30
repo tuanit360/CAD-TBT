@@ -205,7 +205,7 @@ mod tests {
         let mut before=Drawing::new_metric();
         before.add(&Space::Model,common(h1,1),EntityKind::Line(Line{a:Vec3::ZERO,b:Vec3::new(1.0,0.0,0.0)})).unwrap();
         before.add(&Space::Paper("Layout1".into()),common(h2,1),EntityKind::Line(Line{a:Vec3::ZERO,b:Vec3::new(1.0,0.0,0.0)})).unwrap();
-        let mut block=cadcraft_doc::Block::new("B",Vec3::ZERO);
+        let mut block=cadcraft_doc::Block::new("B");
         block.entities.push(Entity{handle:h3,common:common(h3,1),kind:EntityKind::Line(Line{a:Vec3::ZERO,b:Vec3::new(1.0,0.0,0.0)})});
         before.blocks.insert("B".into(),Arc::new(block));
 

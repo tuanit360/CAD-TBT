@@ -212,8 +212,9 @@ pub(super) fn run(s: &mut Session, p: &Value) -> Result<Value> {
                 _ => ix.auto_assoc(&[("p13", dm.p13.xy()), ("p14", dm.p14.xy())]),
             };
         }
-        let h = s.add_entity(k)?;
-        s.last_dim = Some(h);
+        let h=s.add_entity(k)?;
+        crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&hs);
+        s.last_dim=Some(h);
         out.push(h.hex());
     }
     Ok(json!({ "handles": out }))

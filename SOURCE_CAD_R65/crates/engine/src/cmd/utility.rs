@@ -140,8 +140,9 @@ fn run_updatefield(s: &mut Session, p: &Value) -> Result<Value> {
                 EntityKind::MText(t) => t.contents = value.clone(),
                 _ => return,
             }
-            set_field_meta(e, *src, prop, value);
-            updated += 1;
+            set_field_meta(e,*src,prop,value);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
+            updated+=1;
         })?;
     }
     Ok(json!({"updated": updated, "skipped": handles.len().saturating_sub(updated)}))
@@ -412,9 +413,10 @@ fn run_find(s: &mut Session, p: &Value) -> Result<Value> {
         for (h, k) in edits {
             doc.modify_entity(h, |e| {
                 e.kind = k;
-                if let EntityKind::Dimension(dm) = &mut e.kind {
-                    dm.block = None;
+                if let EntityKind::Dimension(dm)=&mut e.kind {
+                    dm.block=None;
                 }
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
             })?;
         }
     } else {

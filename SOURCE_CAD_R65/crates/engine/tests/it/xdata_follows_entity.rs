@@ -301,6 +301,74 @@ fn delete_and_undo_restore_same_bim_entity_identity() {
 }
 
 #[test]
+fn stretch_lengthen_and_align_bump_bim_revision_in_place() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",1);
+
+    s.execute("stretch",&json!({"window":[[9,-1],[11,1]],"delta":[2,0]})).unwrap();
+    assert!(bim_payload(&s,h).contains("revision=2"));
+
+    s.execute("lengthen",&json!({"handle":h.hex(),"delta":2.0})).unwrap();
+    assert!(bim_payload(&s,h).contains("revision=3"));
+
+    s.execute("align",&json!({"handles":[h.hex()],"s1":[0,0],"d1":[5,0]})).unwrap();
+    assert!(bim_payload(&s,h).contains("revision=4"));
+    assert!(bim_payload(&s,h).contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn pasteclip_assigns_new_bim_identity() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",7);
+    s.execute("copyclip",&json!({"handles":[h.hex()]})).unwrap();
+    let r=s.execute("pasteclip",&json!({"at":[20,0]})).unwrap();
+    let nh=Handle::parse_hex(r["handles"][0].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,nh);
+    assert!(p.contains("floor=2"));
+    assert!(p.contains("discipline=ELEC"));
+    assert!(p.contains("revision=1"));
+    assert!(p.contains(&format!("entity={}",nh.hex())));
+    assert!(bim_payload(&s,h).contains("revision=7"));
+}
+
+#[test]
+fn pasteblock_uses_shared_scope_only() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[0,2],[5,2]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",2);
+    add_bim(&mut s,b,1,"ARCH","u1",3);
+    s.execute("copyclip",&json!({"handles":[a.hex(),b.hex()]})).unwrap();
+    let r=s.execute("pasteblock",&json!({"at":[20,0]})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=1"));
+    assert!(p.contains("discipline=ARCH"));
+    assert!(p.contains("owner=u1"));
+    assert!(p.contains("revision=1"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn associative_arraypath_refresh_bumps_array_revision() {
+    let mut s=Session::new();
+    let obj=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[1,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let path=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[20,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,obj,2,"ELEC","u1",1);
+    let r=s.execute("arraypath",&json!({"handles":[obj.hex()],"path":path.hex(),"count":3,"associative":true})).unwrap();
+    let arr=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let before=bim_payload(&s,arr);
+    assert!(before.contains("revision=1"));
+    s.execute("move",&json!({"handles":[path.hex()],"delta":[0,5]})).unwrap();
+    s.execute("arraypathrefresh",&json!({"handle":arr.hex()})).unwrap();
+    let after=bim_payload(&s,arr);
+    assert!(after.contains("revision=2"));
+    assert!(after.contains(&format!("entity={}",arr.hex())));
+}
+
+#[test]
 fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
     let mut s=Session::new();
     let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

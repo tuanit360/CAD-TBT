@@ -1,0 +1,46 @@
+name: QTO Native R134 Port
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'feature/qto-native-*'
+    paths:
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/takeoff.rs'
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/main.rs'
+      - '.github/workflows/qto-native.yml'
+
+concurrency:
+  group: qto-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qto-native:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Verify pinned dependency graph
+        run: cargo metadata --locked --no-deps --format-version 1 > $null
+      - name: Check CAD app
+        run: cargo check --locked -p cadcraft
+      - name: Test native QTO
+        run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+
+      - name: Upload source snapshot for this batch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qto-native-source-${{ github.sha }}
+          path: |
+            SOURCE_CAD_R65/apps/cadcraft/src/takeoff.rs
+            SOURCE_CAD_R65/apps/cadcraft/src/main.rs
+            .github/workflows/qto-native.yml
+          if-no-files-found: error
+          retention-days: 30

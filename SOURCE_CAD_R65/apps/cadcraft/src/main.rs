@@ -131,7 +131,12 @@ impl eframe::App for App {
         ui.separator();
         match self.active_tab {
             MainTab::Cad => self.cad.ui(ui),
-            MainTab::Takeoff => takeoff::panel(ui, &self.cad, &mut self.takeoff_state),
+            MainTab::Takeoff => {
+                ui.columns(2, |columns| {
+                    self.cad.ui(&mut columns[0]);
+                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state);
+                });
+            }
             MainTab::Pdf => {
                 ui.heading("PDF / BẢN VẼ");
                 ui.label("Khu vực tích hợp PDF nhiều trang, hiệu chỉnh theo trang, overlay và annotation. Chức năng đang được chuyển từ QTO R134 sang native.");

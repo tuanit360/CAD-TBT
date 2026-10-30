@@ -137,7 +137,10 @@ pub(super) fn run_laymrg(s: &mut Session, p: &Value) -> Result<Value> {
     let moved = for_each_store(d, &set, |store| {
         let hs: Vec<Handle> = on_layers(store, &set).collect();
         for h in &hs {
-            store.modify(*h, |e| e.common.layer = target.clone());
+            store.modify(*h,|e|{
+                e.common.layer=target.clone();
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
+            });
         }
         hs.len()
     });

@@ -930,6 +930,56 @@ fn measurements_for_handle(app:&CadApp,handle:cadcraft_doc::Handle)->Vec<Pending
     measurements_for_entity(drawing,entity.as_ref(),handle)
 }
 
+fn collect_nested_source_paths(d:&cadcraft_doc::Drawing,current:&cadcraft_doc::Entity,path:&SourcePath,depth:usize,out:&mut Vec<SourcePath>) {
+    if depth>=cadcraft_doc::MAX_BLOCK_DEPTH { return; }
+    let EntityKind::Insert(ins)=&current.kind else {
+        out.push(path.clone());
+        return;
+    };
+
+    if let Some(params)=d.array_params(current) {
+        let Some(items)=params.items() else { return; };
+        for item in items {
+            if params.is_suppressed(item.i,item.j,item.level) { continue; }
+            let block_name=params.block_for(item.i,item.j,item.level).to_string();
+            let Some(block)=d.block(&block_name) else { continue; };
+            for member in block.entities.iter() {
+                let mut next=path.clone();
+                next.steps.push(SourcePathStep::ArrayItem{
+                    i:item.i,j:item.j,level:item.level,member_handle:member.handle.hex()
+                });
+                collect_nested_source_paths(d,member.as_ref(),&next,depth+1,out);
+            }
+        }
+        return;
+    }
+
+    let Some(block)=d.block(&ins.block) else { return; };
+    for member in block.entities.iter() {
+        let mut next=path.clone();
+        next.steps.push(SourcePathStep::BlockMember{block:ins.block.clone(),member_handle:member.handle.hex()});
+        collect_nested_source_paths(d,member.as_ref(),&next,depth+1,out);
+    }
+}
+
+fn nested_source_candidates(app:&CadApp,root:cadcraft_doc::Handle)->Vec<(SourcePath,PendingMeasurement)> {
+    let Ok(d)=app.session.doc() else { return Vec::new(); };
+    let Some(root_entity)=d.model.get(root) else { return Vec::new(); };
+    if !matches!(root_entity.kind,EntityKind::Insert(_)) { return Vec::new(); }
+
+    let base=SourcePath{root_handle:root.hex(),steps:Vec::new()};
+    let mut paths=Vec::new();
+    collect_nested_source_paths(d,root_entity.as_ref(),&base,0,&mut paths);
+
+    let mut out=Vec::new();
+    for path in paths {
+        for measurement in measurements_for_path(app,&path) {
+            out.push((path.clone(),measurement));
+        }
+    }
+    out
+}
+
 fn measurements_for_path(app:&CadApp,path:&SourcePath)->Vec<PendingMeasurement>{
     let Ok(drawing)=app.session.doc() else{return Vec::new();};
     let Some((entity,root))=resolve_source_path(drawing,path) else{return Vec::new();};
@@ -1039,6 +1089,15 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             for measurement in measurements {
                 let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
                 let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
+            }
+        }
+        if ui.button("Thêm QTO nested từ Block/Array đang chọn").clicked() {
+            let roots=app.session.selection();
+            for root in roots {
+                let candidates=nested_source_candidates(app,root);
+                for (path,measurement) in candidates {
+                    let _=state.add_measurement_from_path(app,path,measurement.kind,scope);
+                }
             }
         }
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));

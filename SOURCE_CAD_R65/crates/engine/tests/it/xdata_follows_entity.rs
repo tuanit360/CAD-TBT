@@ -225,6 +225,33 @@ fn pedit_vertex_move_keeps_identity_and_bumps_revision() {
 }
 
 #[test]
+fn pedit_join_same_scope_keeps_base_identity_and_bumps_revision() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[5,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",2);
+    add_bim(&mut s,b,1,"ARCH","u1",4);
+    let r=s.execute("pedit",&json!({"handle":a.hex(),"option":"join","handles2":[b.hex()]})).unwrap();
+    assert_eq!(r["handle"].as_str(),Some(a.hex().as_str()));
+    assert!(s.doc().unwrap().entity(b).is_none());
+    let p=bim_payload(&s,a);
+    assert!(p.contains("revision=3"));
+    assert!(p.contains(&format!("entity={}",a.hex())));
+}
+
+#[test]
+fn pedit_join_different_scopes_strips_bim_from_result() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[5,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",2);
+    add_bim(&mut s,b,2,"STRUCT","u2",4);
+    s.execute("pedit",&json!({"handle":a.hex(),"option":"join","handles2":[b.hex()]})).unwrap();
+    let e=s.doc().unwrap().entity(a).unwrap();
+    assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
+}
+
+#[test]
 fn grip_stretch_keeps_identity_and_bumps_revision() {
     let mut s=Session::new();
     let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

@@ -520,6 +520,86 @@ fn array_grip_edit_keeps_array_identity_and_bumps_revision() {
 }
 
 #[test]
+fn common_scope_rule_centermark_inherits_single_source() {
+    let mut s=Session::new();
+    let src=Handle::parse_hex(s.execute("circle",&json!({"center":[0,0],"radius":5.0})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    add_bim(&mut s,src,2,"ELEC","u1",3);
+    let r=s.execute("centermark",&json!({"handle":src.hex()})).unwrap();
+    let hs=r["handles"].as_array().unwrap();
+    assert_eq!(hs.len(),2);
+    for v in hs {
+        let h=Handle::parse_hex(v.as_str().unwrap()).unwrap();
+        let p=bim_payload(&s,h);
+        assert!(p.contains("floor=2"));
+        assert!(p.contains("discipline=ELEC"));
+        assert!(p.contains("owner=u1"));
+        assert!(p.contains("revision=1"));
+        assert!(p.contains(&format!("entity={}",h.hex())));
+    }
+}
+
+#[test]
+fn common_scope_rule_centerline_requires_matching_sources() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[0,4],[10,4]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,1,"ARCH","u1",2);
+    let r=s.execute("centerline",&json!({"h1":a.hex(),"h2":b.hex()})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=1"));
+    assert!(p.contains("discipline=ARCH"));
+    assert!(p.contains("owner=u1"));
+    assert!(p.contains("revision=1"));
+}
+
+#[test]
+fn common_scope_rule_divide_inherits_source() {
+    let mut s=Session::new();
+    let src=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[12,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,src,3,"STRUCT","u2",4);
+    let r=s.execute("divide",&json!({"handle":src.hex(),"segments":3})).unwrap();
+    let hs=r["handles"].as_array().unwrap();
+    assert_eq!(hs.len(),2);
+    for v in hs {
+        let h=Handle::parse_hex(v.as_str().unwrap()).unwrap();
+        let p=bim_payload(&s,h);
+        assert!(p.contains("floor=3"));
+        assert!(p.contains("discipline=STRUCT"));
+        assert!(p.contains("owner=u2"));
+    }
+}
+
+#[test]
+fn common_scope_rule_measure_inherits_source() {
+    let mut s=Session::new();
+    let src=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[12,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,src,4,"ELEC","u3",5);
+    let r=s.execute("measure",&json!({"handle":src.hex(),"length":4.0})).unwrap();
+    let hs=r["handles"].as_array().unwrap();
+    assert_eq!(hs.len(),2);
+    for v in hs {
+        let h=Handle::parse_hex(v.as_str().unwrap()).unwrap();
+        assert!(bim_payload(&s,h).contains("floor=4"));
+    }
+}
+
+#[test]
+fn common_scope_rule_wipeout_inherits_polyline_source() {
+    let mut s=Session::new();
+    let src=Handle::parse_hex(s.execute("pline",&json!({"points":[[0,0],[10,0],[10,5],[0,5]],"closed":true})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    add_bim(&mut s,src,2,"ARCH","u1",6);
+    let r=s.execute("wipeout",&json!({"handle":src.hex(),"erase":false})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=2"));
+    assert!(p.contains("discipline=ARCH"));
+    assert!(p.contains("owner=u1"));
+    assert!(p.contains("revision=1"));
+}
+
+#[test]
 fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
     let mut s=Session::new();
     let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

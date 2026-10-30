@@ -154,6 +154,7 @@ impl eframe::App for App {
             MainTab::Takeoff => {
                 ui.columns(2, |columns| {
                     self.cad.ui(&mut columns[0]);
+                    bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
                     takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state);
                 });
             }

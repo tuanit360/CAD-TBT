@@ -266,7 +266,7 @@ pub(crate) fn insert_with(
             });
         }
     }
-    let shared_bim_source=blk.entities.first().and_then(|first|{
+    let shared_bim_source=blk.entities.iter().next().and_then(|first|{
         let key=crate::cmd::modify::tbt360_bim_scope_key(&first.common)?;
         blk.entities.iter().all(|e|crate::cmd::modify::tbt360_bim_scope_key(&e.common).as_deref()==Some(key.as_str())).then(||first.common.clone())
     });

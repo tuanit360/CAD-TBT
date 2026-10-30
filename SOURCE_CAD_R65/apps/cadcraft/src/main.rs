@@ -1,4 +1,4 @@
-//! CAD 2D - TBT 360 desktop app.
+//! CAD 360 Việt Nam - TBT desktop app.
 //!
 //! Usage: `cadcraft [--control <port>] [--sample] [files…]`
 //!
@@ -66,7 +66,7 @@ impl App {
         };
         if let Err(error) = result {
             if self.workspace_error.as_ref() != Some(&error) {
-                eprintln!("CAD 2D - TBT 360 workspace: {error}");
+                eprintln!("CAD 360 Việt Nam - TBT workspace: {error}");
                 self.cad.set_status(format!("Workspace could not be saved: {error}"));
                 self.workspace_error = Some(error);
             }
@@ -312,7 +312,7 @@ fn main() -> eframe::Result {
         // swapchains hold two frames back under vsync (`CADCRAFT_VSYNC=1` restores vsync).
         wgpu_options: eframe::egui_wgpu::WgpuConfiguration::default().with_surface_config(surface),
         viewport: egui::ViewportBuilder::default()
-            .with_title("CAD 2D - TBT 360")
+            .with_title("CAD 360 Việt Nam - TBT")
             .with_inner_size([1600.0, 1000.0])
             .with_min_inner_size([900.0, 560.0])
             .with_drag_and_drop(true)
@@ -356,7 +356,7 @@ fn main() -> eframe::Result {
         }));
     }
     eframe::run_native(
-        "CAD 2D - TBT 360",
+        "CAD 360 Việt Nam - TBT",
         options,
         Box::new(move |cc| {
             let mut app = CadApp::new(Session::empty(), services());
@@ -365,7 +365,7 @@ fn main() -> eframe::Result {
                 app.ui = ui;
             }
             if let Some(error) = &workspace_error {
-                eprintln!("CAD 2D - TBT 360 workspace: {error}");
+                eprintln!("CAD 360 Việt Nam - TBT workspace: {error}");
                 app.set_status(error);
             }
             app.system_languages = std::env::var("TBT360_LOCALE")

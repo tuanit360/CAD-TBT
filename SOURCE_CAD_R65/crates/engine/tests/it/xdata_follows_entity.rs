@@ -216,12 +216,36 @@ fn join_different_scopes_is_left_unscoped() {
 #[test]
 fn pedit_vertex_move_keeps_identity_and_bumps_revision() {
     let mut s=Session::new();
-    let h=Handle::parse_hex(s.execute("pline",&json!({"points":[[0,0],[5,0],[10,0]]})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
     add_bim(&mut s,h,2,"ELEC","u1",4);
-    s.execute("pedit",&json!({"handle":h.hex(),"option":"vertex","index":1,"action":"move","to":[5,2]})).unwrap();
+    s.execute("pedit",&json!({"handle":h.hex(),"option":"vertex","index":1,"action":"move","to":[10,2]})).unwrap();
     let p=bim_payload(&s,h);
     assert!(p.contains("revision=5"));
     assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn grip_stretch_keeps_identity_and_bumps_revision() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",2);
+    s.execute("grip.stretch",&json!({"handle":h.hex(),"index":1,"to":[12,0]})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=3"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn grip_stretch_copy_gets_new_identity() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",2);
+    let r=s.execute("grip.stretch",&json!({"grips":[[h.hex(),1]],"delta":[2,0],"copy":true})).unwrap();
+    let nh=Handle::parse_hex(r["handles"][0].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,nh);
+    assert!(p.contains("revision=1"));
+    assert!(p.contains(&format!("entity={}",nh.hex())));
+    assert!(bim_payload(&s,h).contains("revision=2"));
 }
 
 #[test]

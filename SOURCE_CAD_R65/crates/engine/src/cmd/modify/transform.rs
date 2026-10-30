@@ -38,6 +38,49 @@ pub(crate) fn copy_tbt360_bim_scope(source:&cadcraft_doc::Common,target:&mut cad
     if copied { refresh_tbt360_bim_copy_identity(target,new_handle); }
 }
 
+pub(crate) fn strip_tbt360_bim(common:&mut cadcraft_doc::Common) {
+    let mut out=Vec::with_capacity(common.xdata.len());
+    let mut skip=false;
+    for tag in &common.xdata {
+        if tag.code==1001 {
+            skip=tag.value.eq_ignore_ascii_case("TBT360_BIM");
+            if skip { continue; }
+        }
+        if skip { continue; }
+        out.push(tag.clone());
+    }
+    common.xdata=out;
+}
+
+pub(crate) fn bump_tbt360_bim_revision(common:&mut cadcraft_doc::Common,handle:Handle) {
+    let mut in_bim=false;
+    for tag in &mut common.xdata {
+        if tag.code==1001 {
+            in_bim=tag.value.eq_ignore_ascii_case("TBT360_BIM");
+            continue;
+        }
+        if in_bim && tag.code==1000 {
+            let mut parts=tag.value.split(';').map(str::to_string).collect::<Vec<_>>();
+            let mut has_entity=false;
+            let mut has_revision=false;
+            for part in &mut parts {
+                if part.starts_with("entity=") {
+                    *part=format!("entity={}",handle.hex());
+                    has_entity=true;
+                } else if let Some(value)=part.strip_prefix("revision=") {
+                    let next=value.parse::<u64>().unwrap_or(0).saturating_add(1).max(1);
+                    *part=format!("revision={next}");
+                    has_revision=true;
+                }
+            }
+            if !has_entity { parts.push(format!("entity={}",handle.hex())); }
+            if !has_revision { parts.push("revision=1".into()); }
+            tag.value=parts.join(";");
+            break;
+        }
+    }
+}
+
 pub(crate) fn refresh_tbt360_bim_copy_identity(common:&mut cadcraft_doc::Common,new_handle:Handle) {
     let mut in_bim=false;
     for tag in &mut common.xdata {
@@ -171,6 +214,32 @@ mod tests {
         ];
         refresh_tbt360_bim_copy_identity(&mut common,Handle(0x55));
         assert_eq!(common.xdata[1].value,"floor=2;discipline=ELEC;owner=u1;revision=1;entity=55");
+    }
+
+    #[test]
+    fn inplace_bim_edit_keeps_identity_and_bumps_revision() {
+        let mut common=cadcraft_doc::Common::default();
+        common.xdata=vec![
+            cadcraft_doc::RawTag{code:1001,value:"TBT360_BIM".into()},
+            cadcraft_doc::RawTag{code:1000,value:"floor=2;discipline=ELEC;owner=u1;revision=7;entity=2A".into()},
+        ];
+        bump_tbt360_bim_revision(&mut common,Handle(0x2A));
+        assert_eq!(common.xdata[1].value,"floor=2;discipline=ELEC;owner=u1;revision=8;entity=2A");
+    }
+
+    #[test]
+    fn strip_bim_keeps_foreign_xdata() {
+        let mut common=cadcraft_doc::Common::default();
+        common.xdata=vec![
+            cadcraft_doc::RawTag{code:1001,value:"TBT360_BIM".into()},
+            cadcraft_doc::RawTag{code:1000,value:"floor=2;revision=1".into()},
+            cadcraft_doc::RawTag{code:1001,value:"ACME".into()},
+            cadcraft_doc::RawTag{code:1000,value:"keep".into()},
+        ];
+        strip_tbt360_bim(&mut common);
+        assert_eq!(common.xdata.len(),2);
+        assert_eq!(common.xdata[0].value,"ACME");
+        assert_eq!(common.xdata[1].value,"keep");
     }
 
     #[test]

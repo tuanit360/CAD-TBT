@@ -609,100 +609,6 @@ impl Default for State {
 }
 
 impl State {
-    fn project_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "version": 1,
-            "project_id": self.project_id,
-            "project_name": self.project_name,
-            "current_account_id": self.current_account_id,
-            "active_floor_id": self.active_floor_id,
-            "active_discipline": self.active_discipline.code(),
-            "layout": self.layout.code(),
-            "coordinates": {
-                "origin_x_m": self.coordinates.origin_x_m,
-                "origin_y_m": self.coordinates.origin_y_m,
-                "origin_z_m": self.coordinates.origin_z_m,
-                "rotation_deg": self.coordinates.rotation_deg
-            },
-            "floors": self.floors.iter().map(|f| serde_json::json!({
-                "id": f.id, "name": f.name, "elevation_m": f.elevation_m, "height_m": f.height_m
-            })).collect::<Vec<_>>(),
-            "views": self.views.iter().map(|v| serde_json::json!({
-                "floor_id": v.floor_id,
-                "discipline": v.discipline.code(),
-                "owner_account_id": v.owner_account_id,
-                "overlay_opacity": v.overlay_opacity,
-                "show_other_users": v.show_other_users,
-                "mode": v.mode.code()
-            })).collect::<Vec<_>>()
-        })
-    }
-
-    fn load_project_json(&mut self, value:&serde_json::Value) -> Result<(),String> {
-        if value.get("version").and_then(serde_json::Value::as_u64) != Some(1) { return Err("Phiên bản BIM project không được hỗ trợ".into()); }
-        let project_id=value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or_default().trim().to_string();
-        if project_id.is_empty() { return Err("BIM project thiếu project_id".into()); }
-        let project_name=value.get("project_name").and_then(serde_json::Value::as_str).unwrap_or("Dự án BIM").trim().to_string();
-        let current_account_id=value.get("current_account_id").and_then(serde_json::Value::as_str).unwrap_or(&self.current_account_id).trim().to_string();
-        if current_account_id.is_empty() { return Err("BIM project thiếu current_account_id".into()); }
-
-        let coords=value.get("coordinates").and_then(serde_json::Value::as_object).ok_or_else(||"BIM project thiếu coordinates".to_string())?;
-        let read_f64=|name:&str|->Result<f64,String>{
-            let v=coords.get(name).and_then(serde_json::Value::as_f64).ok_or_else(||format!("Coordinates thiếu {name}"))?;
-            if !v.is_finite(){return Err(format!("Coordinates {name} không hợp lệ"));} Ok(v)
-        };
-        let coordinates=ProjectCoordinates{origin_x_m:read_f64("origin_x_m")?,origin_y_m:read_f64("origin_y_m")?,origin_z_m:read_f64("origin_z_m")?,rotation_deg:read_f64("rotation_deg")?};
-
-        let mut floors=Vec::new();
-        let mut floor_ids=std::collections::BTreeSet::new();
-        for item in value.get("floors").and_then(serde_json::Value::as_array).ok_or_else(||"BIM project thiếu floors".to_string())? {
-            let id=item.get("id").and_then(serde_json::Value::as_u64).ok_or_else(||"Floor thiếu id".to_string())?;
-            if id==0 || !floor_ids.insert(id) { return Err("Floor id không hợp lệ hoặc bị trùng".into()); }
-            let name=item.get("name").and_then(serde_json::Value::as_str).unwrap_or_default().trim().to_string();
-            let elevation_m=item.get("elevation_m").and_then(serde_json::Value::as_f64).ok_or_else(||"Floor thiếu elevation_m".to_string())?;
-            let height_m=item.get("height_m").and_then(serde_json::Value::as_f64).ok_or_else(||"Floor thiếu height_m".to_string())?;
-            if name.is_empty() || !elevation_m.is_finite() || !height_m.is_finite() || height_m<=0.0 { return Err("Floor không hợp lệ".into()); }
-            floors.push(Floor{id,name,elevation_m,height_m});
-        }
-        if floors.is_empty() { return Err("BIM project phải có ít nhất một tầng".into()); }
-
-        let active_floor_id=value.get("active_floor_id").and_then(serde_json::Value::as_u64).ok_or_else(||"Thiếu active_floor_id".to_string())?;
-        if !floor_ids.contains(&active_floor_id) { return Err("active_floor_id không tồn tại".into()); }
-        let active_discipline=value.get("active_discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label).ok_or_else(||"active_discipline không hợp lệ".to_string())?;
-        let layout=value.get("layout").and_then(serde_json::Value::as_str).and_then(ViewLayout::parse).ok_or_else(||"layout không hợp lệ".to_string())?;
-
-        let mut views=Vec::new();
-        for item in value.get("views").and_then(serde_json::Value::as_array).ok_or_else(||"BIM project thiếu views".to_string())? {
-            let floor_id=item.get("floor_id").and_then(serde_json::Value::as_u64).ok_or_else(||"View thiếu floor_id".to_string())?;
-            if !floor_ids.contains(&floor_id) { return Err("View tham chiếu tầng không tồn tại".into()); }
-            let discipline=item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label).ok_or_else(||"View discipline không hợp lệ".to_string())?;
-            let overlay_opacity=item.get("overlay_opacity").and_then(serde_json::Value::as_f64).unwrap_or(0.35) as f32;
-            if !overlay_opacity.is_finite() || !(0.05..=1.0).contains(&overlay_opacity) { return Err("View overlay_opacity không hợp lệ".into()); }
-            let show_other_users=item.get("show_other_users").and_then(serde_json::Value::as_bool).unwrap_or(true);
-            let mode=item.get("mode").and_then(serde_json::Value::as_str).and_then(ViewMode::parse).ok_or_else(||"View mode không hợp lệ".to_string())?;
-            let owner_account_id=item.get("owner_account_id").and_then(serde_json::Value::as_str).map(str::to_string);
-            views.push(ViewSlot{floor_id,discipline,owner_account_id,overlay_opacity,show_other_users,mode});
-        }
-        if views.is_empty() || views.len()<layout.slots() { return Err("Số view không đủ cho layout".into()); }
-
-        self.project_id=project_id;
-        self.project_name=project_name;
-        self.current_account_id=current_account_id;
-        self.coordinates=coordinates;
-        self.floors=floors;
-        self.active_floor_id=active_floor_id;
-        self.active_discipline=active_discipline;
-        self.layout=layout;
-        self.views=views;
-        self.pending_changes.clear();
-        self.conflicts.clear();
-        self.leases.clear();
-        self.presence.clear();
-        self.dirty_local_changes=0;
-        self.stop_work_session();
-        Ok(())
-    }
-
     fn save_view_preset(&mut self, name: String) {
         let name = name.trim().to_string();
         if name.is_empty() { return; }
@@ -1434,24 +1340,6 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
 
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     ui.heading("BIM Cộng tác");
-    ui.horizontal(|ui| {
-        if ui.button("Lưu cấu hình BIM").clicked() {
-            if let Some(path)=rfd::FileDialog::new().add_filter("TBT360 BIM Project", &["json"]).set_file_name("TBT360_BIM_PROJECT.json").save_file() {
-                if let Ok(data)=serde_json::to_vec_pretty(&state.project_json()) {
-                    if let Err(e)=std::fs::write(&path,data) { eprintln!("Không thể lưu BIM project: {e}"); }
-                }
-            }
-        }
-        if ui.button("Mở cấu hình BIM").clicked() {
-            if let Some(path)=rfd::FileDialog::new().add_filter("TBT360 BIM Project", &["json"]).pick_file() {
-                let result=std::fs::read(&path).map_err(|e|e.to_string())
-                    .and_then(|data|serde_json::from_slice::<serde_json::Value>(&data).map_err(|e|e.to_string()))
-                    .and_then(|value|state.load_project_json(&value));
-                if let Err(e)=result { eprintln!("Không thể mở BIM project: {e}"); }
-                else { let _=state.apply_native_viewports(app); sync_render_filters(app,state); }
-            }
-        }
-    });
     ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
 
     {
@@ -1956,44 +1844,6 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         egui::Color32::YELLOW,
         "Giai đoạn sơ bộ: viewport hiện mới quản lý scope/tầng/bộ môn/opacity. Renderer đa viewport, server sync và khóa đối tượng sẽ được nối vào các cấu trúc này ở bước tiếp theo."
     );
-}
-
-#[cfg(test)]
-mod persistence_tests {
-    use super::*;
-
-    #[test]
-    fn bim_project_roundtrip_preserves_coordinates_floors_and_views() {
-        let mut original=State::default();
-        original.project_id="P-360".into();
-        original.project_name="Tower A".into();
-        original.coordinates=ProjectCoordinates{origin_x_m:100.0,origin_y_m:200.0,origin_z_m:5.5,rotation_deg:12.0};
-        original.active_floor_id=2;
-        original.active_discipline=Discipline::Electrical;
-        original.layout=ViewLayout::Two;
-        let json=original.project_json();
-        let mut reopened=State::default();
-        reopened.load_project_json(&json).unwrap();
-        assert_eq!(reopened.project_id,"P-360");
-        assert_eq!(reopened.active_floor_id,2);
-        assert_eq!(reopened.active_discipline,Discipline::Electrical);
-        assert!((reopened.coordinates.origin_z_m-5.5).abs()<1e-12);
-        assert_eq!(reopened.views.len(),original.views.len());
-    }
-
-    #[test]
-    fn bim_project_rejects_duplicate_floor_ids_and_invalid_view_floor() {
-        let mut value=State::default().project_json();
-        value["floors"]=serde_json::json!([
-            {"id":1,"name":"Tầng 1","elevation_m":0.0,"height_m":3.6},
-            {"id":1,"name":"Tầng 2","elevation_m":3.6,"height_m":3.6}
-        ]);
-        assert!(State::default().load_project_json(&value).is_err());
-
-        let mut value=State::default().project_json();
-        value["views"][0]["floor_id"]=serde_json::json!(999);
-        assert!(State::default().load_project_json(&value).is_err());
-    }
 }
 
 #[cfg(test)]

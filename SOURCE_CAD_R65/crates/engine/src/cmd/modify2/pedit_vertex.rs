@@ -55,10 +55,13 @@ pub(super) fn break_poly(s: &mut Session, h: Handle, pl: &LwPolyline, i: usize, 
     let first = it.next().ok_or_else(|| other("Breaking there would remove the whole polyline."))?;
     let e = curves::entity(s, h)?;
     let space = s.doc()?.space_of(h).ok_or_else(|| other("No such object."))?;
-    set_kind(s, h, EntityKind::LwPolyline(first))?;
-    let mut out = vec![h];
+    set_kind(s,h,EntityKind::LwPolyline(first))?;
+    s.doc_mut()?.modify_entity(h,|entity|crate::cmd::modify::bump_tbt360_bim_revision(&mut entity.common,h))?;
+    let mut out=vec![h];
     for p in it {
-        out.push(push_entity(s, &space, e.common.clone(), EntityKind::LwPolyline(p))?);
+        let nh=push_entity(s,&space,e.common.clone(),EntityKind::LwPolyline(p))?;
+        s.doc_mut()?.modify_entity(nh,|entity|crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut entity.common,nh))?;
+        out.push(nh);
     }
     Ok(out)
 }

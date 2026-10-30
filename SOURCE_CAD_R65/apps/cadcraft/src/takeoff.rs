@@ -171,6 +171,31 @@ impl State {
         Ok(id)
     }
 
+    fn refresh_from_source(&mut self, app:&CadApp, id:u64) -> Result<(),String> {
+        let index=self.records.iter().position(|r|r.id==id).ok_or_else(||"Không tìm thấy record QTO".to_string())?;
+        let handle_hex=self.records[index].source_handle.clone().ok_or_else(||"Record không có source_handle".to_string())?;
+        let handle=cadcraft_doc::Handle::parse_hex(&handle_hex).ok_or_else(||"source_handle không hợp lệ".to_string())?;
+        let candidates=measurements_for_handle(app,handle);
+        let kind=self.records[index].kind;
+        let current=candidates.into_iter().find(|m|m.kind==kind).ok_or_else(||"Entity nguồn không còn hỗ trợ loại phép đo này".to_string())?;
+        let old=self.records[index].clone();
+        let source_scope=crate::bim_collab::entity_scope(app,handle);
+        let scope=source_scope.as_ref().map(|x|Scope{floor_id:Some(x.floor_id),discipline:Some(x.discipline.clone()),owner_account_id:Some(x.owner_account_id.clone())}).unwrap_or_else(||old.scope.clone());
+        let revision=source_scope.map(|x|x.revision);
+        self.snapshot();
+        self.records[index].points=current.points;
+        self.records[index].raw_value=current.raw_value;
+        self.records[index].layer=current.layer;
+        self.records[index].scope=scope;
+        self.records[index].source_revision=revision;
+        self.records[index].source_geometry_signature=Some(geometry_signature(&current));
+        self.records[index].status=MeasureStatus::Review;
+        self.audit_change(id,"REFRESH_SOURCE",
+            Some(format!("value={:.6};scope={:?};revision={:?}",old.raw_value,old.scope,old.source_revision)),
+            Some(format!("value={:.6};scope={:?};revision={:?}",self.records[index].raw_value,self.records[index].scope,self.records[index].source_revision)));
+        Ok(())
+    }
+
     fn set_status(&mut self, id: u64, status: MeasureStatus) -> bool {
         let Some(index) = self.records.iter().position(|r| r.id == id) else { return false; };
         if self.records[index].status == status { return true; }
@@ -840,6 +865,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     ui.horizontal(|ui| {
                         if ui.small_button("✓").on_hover_text("Xác nhận").clicked() { action=Some((record.id,1)); }
                         if ui.small_button("⊘").on_hover_text("Loại khỏi khối lượng").clicked() { action=Some((record.id,2)); }
+                        if ui.small_button("↻").on_hover_text("Cập nhật lại từ entity CAD/BIM nguồn").clicked() { action=Some((record.id,5)); }
                         if ui.small_button("✎").on_hover_text("Sửa mã công tác / diễn giải / ghi chú").clicked() { action=Some((record.id,4)); }
                         if ui.small_button("×").on_hover_text("Xóa phép đo").clicked() { action=Some((record.id,3)); }
                     });
@@ -853,6 +879,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 2 => { let _ = state.set_status(id, MeasureStatus::Excluded); }
                 3 => { let _ = state.delete_measurement(id); }
                 4 => { let _ = state.select_record(id); }
+                5 => { let _ = state.refresh_from_source(app,id); }
                 _ => {}
             }
         }
@@ -1128,6 +1155,17 @@ mod tests {
         let q=groups.values().next().unwrap();
         assert_eq!(q.confirmed_records,0);
         assert_eq!(q.count,0.0);
+    }
+
+    #[test]
+    fn refresh_source_policy_returns_record_to_review() {
+        let mut state=State::default();
+        let scope=Scope{floor_id:Some(1),discipline:Some("ARCH".into()),owner_account_id:Some("u1".into())};
+        let id=state.add_measurement_scoped(MeasureKind::Count,Vec::new(),2.0,"DEVICE".into(),&scope).unwrap();
+        assert!(state.set_status(id,MeasureStatus::Confirmed));
+        assert_eq!(state.records[0].status,MeasureStatus::Confirmed);
+        state.records[0].status=MeasureStatus::Review;
+        assert_eq!(state.records[0].status,MeasureStatus::Review);
     }
 
     #[test]

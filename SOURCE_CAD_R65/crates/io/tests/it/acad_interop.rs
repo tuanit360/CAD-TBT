@@ -4,7 +4,7 @@
 //! of a rotated linear dimension (#1054) and of angular dimensions.
 
 use cadcraft_color::Color;
-use cadcraft_doc::{Common, DimKind, DimStyle, Dimension, Drawing, EntityKind, HAlign, Space, Text, VAlign};
+use cadcraft_doc::{Common, DimKind, DimStyle, Dimension, Drawing, EntityKind, HAlign, Line, RawTag, Space, Text, VAlign};
 use cadcraft_geom::Vec3;
 use cadcraft_io::{SaveOptions, Version, read, write_dxf, write_with};
 
@@ -32,6 +32,25 @@ fn text(value: &str, at: Vec3, h: HAlign, v: VAlign) -> EntityKind {
         halign: h,
         valign: v,
     })
+}
+
+#[test]
+fn tbt360_bim_identity_survives_dwg_r2018_roundtrip() {
+    let mut d=Drawing::new_metric();
+    let h=d.add(&Space::Model,Common::default(),EntityKind::Line(Line{a:Vec3::new(1.0,2.0,0.0),b:Vec3::new(4.0,6.0,0.0)})).unwrap();
+    let payload=format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",h.hex());
+    d.modify_entity(h,|e|e.common.xdata=vec![
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:payload.clone()},
+    ]).unwrap();
+
+    let back=dwg_roundtrip(&d);
+    let entity=back.entity(h).expect("same entity handle after DWG reopen");
+    assert_eq!(entity.handle,h);
+    assert!(entity.common.xdata.windows(2).any(|pair|
+        pair[0].code==1001 && pair[0].value=="TBT360_BIM"
+            && pair[1].code==1000 && pair[1].value==payload
+    ));
 }
 
 #[test]

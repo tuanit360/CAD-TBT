@@ -161,45 +161,46 @@ fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     groups
 }
 
-pub fn show(ctx: &egui::Context, open: &mut bool, app: &CadApp) {
+fn draw_contents(ui: &mut egui::Ui, app: &CadApp) {
     let groups = quantities(app);
-    egui::Window::new("Đo bóc / Takeoff — CAD native")
-        .open(open)
-        .default_width(750.0)
-        .show(ctx, |ui| {
-            ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở — thay đổi sau khi vẽ/sửa/Undo/Redo.");
-            ui.colored_label(egui::Color32::YELLOW,
-                "Đơn vị theo bản vẽ; không phải m/m² nếu drawing chưa thiết lập đúng. Không tính Solid/IFC/PDF, không tự suy diễn khối lượng thép.");
-            ui.separator();
-            egui::ScrollArea::horizontal().show(ui, |ui| {
-                egui::Grid::new("native_qto_table").striped(true).show(ui, |ui| {
-                    for heading in ["Layer", "Số đối tượng", "LINE dài", "ARC dài", "PLINE dài", "PLINE kín diện tích", "CIRCLE diện tích", "Khác/chưa đo"] {
-                        ui.strong(heading);
-                    }
-                    ui.end_row();
-                    for (layer, q) in &groups {
-                        ui.label(layer);
-                        ui.label(q.count.to_string());
-                        ui.label(format!("{:.3}", q.line_length));
-                        ui.label(format!("{:.3}", q.arc_length));
-                        ui.label(format!("{:.3}", q.polyline_length));
-                        ui.label(format!("{:.3}", q.closed_area));
-                        ui.label(format!("{:.3}", q.circle_area));
-                        ui.label(q.unsupported.to_string());
-                        ui.end_row();
-                    }
-                });
-            });
-            if ui.button("Sao chép bảng CSV / Copy CSV").clicked() {
-                let mut csv = String::from("layer,entity_count,line_length_units,arc_length_units,polyline_length_units,closed_polyline_area_units2,circle_area_units2,unmeasured_count\n");
-                for (layer, q) in &groups {
-                    let safe = format!("\"{}\"", layer.replace('"', "\"\""));
-                    csv.push_str(&format!("{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{}\n",
-                        safe, q.count, q.line_length, q.arc_length, q.polyline_length, q.closed_area, q.circle_area, q.unsupported));
-                }
-                ctx.copy_text(csv);
+    ui.heading("Đo bóc khối lượng — CAD native");
+    ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở; thay đổi ngay sau khi vẽ, sửa, Undo hoặc Redo.");
+    ui.colored_label(egui::Color32::YELLOW,
+        "Đơn vị theo bản vẽ. Chỉ số đo CAD native; chưa tự quy đổi sang m/m² nếu bản vẽ chưa có đơn vị chuẩn và chưa tính IFC/PDF/Solid.");
+    ui.separator();
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        egui::Grid::new("native_qto_table").striped(true).min_col_width(105.0).show(ui, |ui| {
+            for heading in ["Layer", "Số đối tượng", "LINE dài", "ARC dài", "PLINE dài", "PLINE kín diện tích", "CIRCLE diện tích", "Khác/chưa đo"] {
+                ui.strong(heading);
+            }
+            ui.end_row();
+            for (layer, q) in &groups {
+                ui.label(layer);
+                ui.label(q.count.to_string());
+                ui.label(format!("{:.3}", q.line_length));
+                ui.label(format!("{:.3}", q.arc_length));
+                ui.label(format!("{:.3}", q.polyline_length));
+                ui.label(format!("{:.3}", q.closed_area));
+                ui.label(format!("{:.3}", q.circle_area));
+                ui.label(q.unsupported.to_string());
+                ui.end_row();
             }
         });
+    });
+    ui.separator();
+    if ui.button("Sao chép bảng CSV").clicked() {
+        let mut csv = String::from("layer,entity_count,line_length_units,arc_length_units,polyline_length_units,closed_polyline_area_units2,circle_area_units2,unmeasured_count\n");
+        for (layer, q) in &groups {
+            let safe = format!("\"{}\"", layer.replace('"', "\"\""));
+            csv.push_str(&format!("{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{}\n",
+                safe, q.count, q.line_length, q.arc_length, q.polyline_length, q.closed_area, q.circle_area, q.unsupported));
+        }
+        ui.ctx().copy_text(csv);
+    }
+}
+
+pub fn panel(ui: &mut egui::Ui, app: &CadApp) {
+    draw_contents(ui, app);
 }
 
 #[cfg(test)]

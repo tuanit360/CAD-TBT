@@ -43,10 +43,13 @@ jobs:
         shell: pwsh
         run: |
           $hits = git grep -n -E "craft_update|craft-update|suite::CADCRAFT" -- apps/cadcraft/src crates/ui-egui/src apps/cadcraft/Cargo.toml crates/ui-egui/Cargo.toml Cargo.toml
-          if ($LASTEXITCODE -eq 0 -and $hits) {
+          $grepExit = $LASTEXITCODE
+          if ($grepExit -eq 0 -and $hits) {
             $hits | Write-Host
             throw "Upstream CADCraft updater code is still referenced by the TBT360 runtime"
           }
+          if ($grepExit -ne 0 -and $grepExit -ne 1) { throw "git grep failed with exit code $grepExit" }
+          $global:LASTEXITCODE = 0
 
       - name: Check CAD workspace
         run: cargo check --workspace --locked

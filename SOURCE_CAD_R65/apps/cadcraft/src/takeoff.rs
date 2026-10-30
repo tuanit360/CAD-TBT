@@ -209,10 +209,17 @@ impl State {
             let id = item.get("id").and_then(serde_json::Value::as_u64).ok_or_else(|| "Measurement thiếu id".to_string())?;
             let kind = item.get("kind").and_then(serde_json::Value::as_str).and_then(MeasureKind::parse).ok_or_else(|| "Measurement kind không hợp lệ".to_string())?;
             let raw_value = item.get("raw_value").and_then(serde_json::Value::as_f64).ok_or_else(|| "Measurement thiếu raw_value".to_string())?;
+            if !raw_value.is_finite() || raw_value < 0.0 { return Err("Measurement raw_value không hợp lệ".into()); }
             let status = item.get("status").and_then(serde_json::Value::as_str).and_then(MeasureStatus::parse).unwrap_or(MeasureStatus::Review);
-            let points = item.get("points").and_then(serde_json::Value::as_array).map(|rows| rows.iter().filter_map(|p| {
-                let p=p.as_array()?; Some([p.first()?.as_f64()?, p.get(1)?.as_f64()?])
-            }).collect()).unwrap_or_default();
+            let mut points = Vec::new();
+            for point in item.get("points").and_then(serde_json::Value::as_array).cloned().unwrap_or_default() {
+                let pair = point.as_array().ok_or_else(|| "Measurement point không hợp lệ".to_string())?;
+                let x = pair.first().and_then(serde_json::Value::as_f64).ok_or_else(|| "Measurement point thiếu X".to_string())?;
+                let y = pair.get(1).and_then(serde_json::Value::as_f64).ok_or_else(|| "Measurement point thiếu Y".to_string())?;
+                if !x.is_finite() || !y.is_finite() { return Err("Measurement point không hữu hạn".into()); }
+                points.push([x, y]);
+            }
+            if kind != MeasureKind::Count && points.is_empty() { return Err("Measurement thiếu hình học".into()); }
             records.push(MeasurementRecord {
                 id, kind, points, raw_value,
                 layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),

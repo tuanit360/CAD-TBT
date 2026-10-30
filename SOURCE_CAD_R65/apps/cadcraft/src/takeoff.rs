@@ -634,8 +634,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         }
         if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
             let measurements=selected_count_measurements(app);
-            for (kind,points,value,layer) in measurements {
-                let _=state.add_measurement(kind,points,value,layer);
+            for measurement in measurements {
+                let entity_scope=scope_from_entity_or_active(app,measurement.source_handle,scope);
+                let _=state.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,&entity_scope);
             }
         }
         ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));

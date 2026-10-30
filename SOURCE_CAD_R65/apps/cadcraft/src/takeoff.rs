@@ -196,7 +196,12 @@ impl State {
     fn load_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
         let drawing_distance = value.get("drawing_distance").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu drawing_distance".to_string())?;
         let real_distance_m = value.get("real_distance_m").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu real_distance_m".to_string())?;
-        if !(drawing_distance.is_finite() && real_distance_m.is_finite() && drawing_distance > 1e-12 && real_distance_m > 0.0) {
+        if !(drawing_distance.is_finite() && real_distance_m.is_finite()) {
+            return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into());
+        }
+        let uncalibrated = drawing_distance.abs() <= 1e-12 && real_distance_m.abs() <= 1e-12;
+        let calibrated = drawing_distance > 1e-12 && real_distance_m > 0.0;
+        if !uncalibrated && !calibrated {
             return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into());
         }
         let mut records = Vec::new();

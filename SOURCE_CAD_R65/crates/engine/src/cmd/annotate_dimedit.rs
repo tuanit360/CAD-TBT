@@ -75,12 +75,13 @@ fn edit_dims(s: &mut Session, hs: &[Handle], f: &dyn Fn(&mut Dimension) -> bool)
     let mut n = 0;
     for h in hs {
         let mut changed = false;
-        d.modify_entity(*h, |e| {
-            if let EntityKind::Dimension(dm) = &mut e.kind
+        d.modify_entity(*h,|e|{
+            if let EntityKind::Dimension(dm)=&mut e.kind
                 && f(dm)
             {
-                dm.block = None;
-                changed = true;
+                dm.block=None;
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
+                changed=true;
             }
         })?;
         n += usize::from(changed);

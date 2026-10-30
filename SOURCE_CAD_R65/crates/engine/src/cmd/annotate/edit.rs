@@ -10,8 +10,9 @@ pub(super) fn run_update(s: &mut Session, p: &Value) -> Result<Value> {
         let _ = d.modify_entity(h, |e| {
             if let EntityKind::Dimension(dm) = &mut e.kind {
                 dm.style = st.clone();
-                dm.block = None;
-                n += 1;
+                dm.block=None;
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
+                n+=1;
             }
         });
     }
@@ -40,8 +41,9 @@ pub(super) fn run_override(s: &mut Session, p: &Value) -> Result<Value> {
     for h in &hs {
         let _ = d.modify_entity(*h, |e| {
             if let EntityKind::Dimension(dm) = &mut e.kind {
-                dm.text = t.clone();
-                dm.block = None;
+                dm.text=t.clone();
+                dm.block=None;
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
             }
         });
     }
@@ -76,7 +78,8 @@ pub(super) fn run_reassociate(s: &mut Session, p: &Value) -> Result<Value> {
         n += usize::from(!a.is_empty());
         let _ = d.modify_entity(h, |e| {
             if let EntityKind::Dimension(dm) = &mut e.kind {
-                dm.assoc = a;
+                dm.assoc=a;
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
             }
         });
     }
@@ -93,7 +96,8 @@ pub(super) fn run_disassociate(s: &mut Session, p: &Value) -> Result<Value> {
                 && !dm.assoc.is_empty()
             {
                 dm.assoc.clear();
-                n += 1;
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
+                n+=1;
             }
         });
     }
@@ -152,6 +156,7 @@ pub(super) fn run_dimtedit(s: &mut Session, p: &Value) -> Result<Value> {
                 }
                 _ => {}
             }
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
         })?;
     }
     Ok(json!({ "changed": hs.len() }))
@@ -198,7 +203,8 @@ pub(super) fn run_dimspace(s: &mut Session, p: &Value) -> Result<Value> {
                 let moved = cur + n * (target - cur).dot(n);
                 o.defpt = v3(moved);
                 o.user_text_pos = false;
-                o.block = None;
+                o.block=None;
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
             }
         })?;
     }

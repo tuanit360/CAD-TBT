@@ -8,7 +8,7 @@ use cadcraft_engine::Session;
 use cadcraft_engine::cmd::clipboard;
 use cadcraft_engine::cmd::file::{IoHooks, set_io};
 use cadcraft_engine::doc::color::Color;
-use cadcraft_engine::doc::{Block, Common, Drawing, Entity, EntityKind, Handle, Insert, Layer, Line};
+use cadcraft_engine::doc::{Block, Common, Drawing, Entity, EntityKind, Handle, Insert, Layer, Line, RawTag};
 use cadcraft_engine::geom::{Vec2, Vec3};
 use serde_json::json;
 
@@ -284,6 +284,42 @@ fn cutbase_asks_for_the_base_point_then_the_objects() {
 
 /// A stand-in for the DXF writer and reader: "writes" the drawing to memory.
 static WRITTEN: Mutex<Option<Drawing>> = Mutex::new(None);
+
+#[test]
+fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste() {
+    set_io(IoHooks {
+        read: |bytes,name| cadcraft_io::read(bytes,name).map_err(|e|e.to_string()),
+        write: |d,name| cadcraft_io::write(d,name).map_err(|e|e.to_string()),
+        plot: None,
+    });
+
+    let mut source=Drawing::new_metric();
+    let mut e=line(&mut source,"0",(0.0,0.0),(10.0,0.0));
+    let old=e.handle;
+    e.common.xdata=vec![
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",old.hex())},
+    ];
+    source.model.push(e);
+
+    let mut a=Session::empty();
+    a.open_drawing(source,"A",None);
+    a.execute("copybase",&json!({"handles":[old.hex()],"base":[0,0]})).unwrap();
+    let text=clipboard::system_text(&a).expect("real DXF clipboard text");
+    assert!(text.contains("TBT360_BIM"));
+
+    let mut b=Session::empty();
+    b.open_drawing(Drawing::new_metric(),"B",None);
+    assert!(clipboard::load_system_text(&mut b,&text));
+    b.execute("pasteclip",&json!({"at":[0,0]})).unwrap();
+
+    let pasted=b.doc().unwrap().model.first().unwrap();
+    assert_ne!(pasted.handle,old);
+    let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
+    let payload=&pasted.common.xdata[at+1].value;
+    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"));
+    assert!(payload.contains(&format!("entity={}",pasted.handle.hex())));
+}
 
 #[test]
 fn clipboard_travels_as_text() {

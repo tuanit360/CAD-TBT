@@ -6,6 +6,7 @@ on:
     branches:
       - 'feature/bim-*'
       - 'integration/bim-collaboration'
+      - 'integration/cad360-unified-r66'
     paths:
       - 'SOURCE_CAD_R65/apps/cadcraft/src/**'
       - 'SOURCE_CAD_R65/crates/ui-egui/src/**'
@@ -34,9 +35,12 @@ jobs:
         run: cargo check --locked -p cadcraft
       - name: Test all BIM modules
         run: cargo test --locked -p cadcraft bim_ -- --nocapture
+      - name: Cargo metadata gate
+        if: startsWith(github.ref, 'refs/heads/integration/')
+        run: cargo metadata --locked --no-deps
       - name: Integration full workspace check
-        if: github.ref == 'refs/heads/integration/bim-collaboration'
+        if: startsWith(github.ref, 'refs/heads/integration/')
         run: cargo check --workspace --locked
       - name: Integration full workspace regression
-        if: github.ref == 'refs/heads/integration/bim-collaboration'
+        if: startsWith(github.ref, 'refs/heads/integration/')
         run: cargo test --workspace --locked --no-fail-fast

@@ -319,6 +319,56 @@ fn lwpoly_metrics(vertices: &[cadcraft_doc::geom::PolyVertex], closed: bool) -> 
     }
 }
 
+fn selected_measurements(app: &CadApp) -> Vec<(MeasureKind, Vec<[f64; 2]>, f64, String)> {
+    let selected = app.session.selection();
+    let Ok(drawing) = app.session.doc() else { return Vec::new(); };
+    let mut out = Vec::new();
+    for handle in selected {
+        let Some(entity) = drawing.model.get(handle) else { continue; };
+        let layer = entity.common.layer.clone();
+        match &entity.kind {
+            EntityKind::Line(line) => {
+                let value = (line.b.x-line.a.x).hypot(line.b.y-line.a.y).hypot(line.b.z-line.a.z);
+                if value.is_finite() {
+                    out.push((MeasureKind::Length, vec![[line.a.x,line.a.y],[line.b.x,line.b.y]], value, layer));
+                }
+            }
+            EntityKind::Arc(arc) if arc.radius.is_finite() && arc.radius > 0.0 => {
+                let delta=(arc.end-arc.start).rem_euclid(std::f64::consts::TAU);
+                let value=arc.radius*delta;
+                let a=[arc.center.x+arc.radius*arc.start.cos(),arc.center.y+arc.radius*arc.start.sin()];
+                let b=[arc.center.x+arc.radius*arc.end.cos(),arc.center.y+arc.radius*arc.end.sin()];
+                if value.is_finite() { out.push((MeasureKind::Length,vec![a,b],value,layer)); }
+            }
+            EntityKind::Circle(circle) if circle.radius.is_finite() && circle.radius > 0.0 => {
+                let area=std::f64::consts::PI*circle.radius*circle.radius;
+                out.push((MeasureKind::Area,vec![[circle.center.x,circle.center.y],[circle.center.x+circle.radius,circle.center.y]],area,layer));
+            }
+            EntityKind::LwPolyline(poly) => {
+                if let Some((perimeter,area))=lwpoly_metrics(&poly.vertices,poly.closed) {
+                    let points=poly.vertices.iter().map(|v|[v.p.x,v.p.y]).collect::<Vec<_>>();
+                    if perimeter>0.0 { out.push((MeasureKind::Perimeter,points.clone(),perimeter,layer.clone())); }
+                    if poly.closed && area>0.0 { out.push((MeasureKind::Area,points,area,layer)); }
+                }
+            }
+            EntityKind::Polyline3d(poly) => {
+                let n=poly.points.len();
+                let edges=if poly.closed{n}else{n.saturating_sub(1)};
+                let mut value=0.0;
+                for i in 0..edges {
+                    let a=&poly.points[i]; let b=&poly.points[(i+1)%n];
+                    value+=(b.x-a.x).hypot(b.y-a.y).hypot(b.z-a.z);
+                }
+                if n>=2 && value.is_finite() {
+                    out.push((if poly.closed { MeasureKind::Perimeter } else { MeasureKind::Length },poly.points.iter().map(|p|[p.x,p.y]).collect(),value,layer));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     let mut groups = BTreeMap::<String, Quantity>::new();
     if let Ok(drawing) = app.session.doc() {
@@ -399,6 +449,16 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
     let area_unit = if scale.is_some() { "m²" } else { "đv²" };
     let lf = scale.unwrap_or(1.0);
     let af = lf * lf;
+
+    ui.horizontal(|ui| {
+        if ui.button("Thêm đối tượng CAD đang chọn").clicked() {
+            let measurements=selected_measurements(app);
+            for (kind,points,value,layer) in measurements {
+                let _=state.add_measurement(kind,points,value,layer);
+            }
+        }
+        ui.label(format!("Đang chọn {} đối tượng CAD", app.session.selection().len()));
+    });
 
     ui.horizontal(|ui| {
         if ui.button("Lưu dự án đo bóc").clicked() {
@@ -538,6 +598,15 @@ mod tests {
         assert!((restored.drawing_distance - 2500.0).abs() < 1e-12);
         assert!((restored.real_distance_m - 2.5).abs() < 1e-12);
         assert!((restored.scale_to_m().unwrap() - 0.001).abs() < 1e-12);
+    }
+
+    #[test]
+    fn closed_polyline_can_produce_perimeter_and_area_records() {
+        let points=[(0.0,0.0),(4.0,0.0),(4.0,3.0),(0.0,3.0)];
+        let vertices=points.iter().map(|&(x,y)| PolyVertex::new(Vec2::new(x,y))).collect::<Vec<_>>();
+        let (perimeter,area)=lwpoly_metrics(&vertices,true).unwrap();
+        assert!((perimeter-14.0).abs()<1e-10);
+        assert!((area-12.0).abs()<1e-10);
     }
 
     #[test]

@@ -226,9 +226,10 @@ fn xbind_in(d: &mut Drawing, sym: Sym, name: &str, depth: usize) -> Result<Strin
             nb.explodable = b.explodable;
             nb.units = b.units;
             for e in b.entities.iter() {
-                let mut e = (**e).clone();
-                e.handle = d.new_handle();
-                rename_refs(&mut e, &get);
+                let mut e=(**e).clone();
+                e.handle=d.new_handle();
+                crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
+                rename_refs(&mut e,&get);
                 nb.entities.push(e);
             }
             d.blocks.insert(new.clone(), Arc::new(nb));

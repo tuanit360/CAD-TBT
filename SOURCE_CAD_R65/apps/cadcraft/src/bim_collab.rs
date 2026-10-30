@@ -346,6 +346,7 @@ pub struct BimEntityMeta {
     pub discipline: Discipline,
     pub owner_account_id: String,
     pub revision: u64,
+    pub entity_handle: Option<cadcraft_doc::Handle>,
 }
 
 impl BimEntityMeta {
@@ -373,7 +374,9 @@ impl BimEntityMeta {
     }
 
     fn payload(&self) -> String {
-        format!("floor={};discipline={};owner={};revision={}", self.floor_id, self.discipline_code(), self.owner_account_id.replace(';', "_"), self.revision)
+        let mut payload=format!("floor={};discipline={};owner={};revision={}",self.floor_id,self.discipline_code(),self.owner_account_id.replace(';',"_"),self.revision);
+        if let Some(handle)=self.entity_handle { payload.push_str(&format!(";entity={}",handle.hex())); }
+        payload
     }
 
     fn parse(payload: &str) -> Option<Self> {
@@ -381,6 +384,7 @@ impl BimEntityMeta {
         let mut discipline = None;
         let mut owner_account_id = None;
         let mut revision = None;
+        let mut entity_handle = None;
         for part in payload.split(';') {
             let (key, value) = part.split_once('=')?;
             match key {
@@ -388,10 +392,11 @@ impl BimEntityMeta {
                 "discipline" => discipline = Self::from_discipline_code(value),
                 "owner" => owner_account_id = Some(value.to_string()),
                 "revision" => revision = value.parse().ok(),
+                "entity" => entity_handle = cadcraft_doc::Handle::parse_hex(value),
                 _ => {}
             }
         }
-        Some(Self { floor_id: floor_id?, discipline: discipline?, owner_account_id: owner_account_id?, revision: revision? })
+        Some(Self { floor_id: floor_id?, discipline: discipline?, owner_account_id: owner_account_id?, revision: revision?, entity_handle })
     }
 }
 
@@ -421,6 +426,7 @@ pub struct EntityScope {
     pub discipline: String,
     pub owner_account_id: String,
     pub revision: u64,
+    pub entity_handle: Option<cadcraft_doc::Handle>,
 }
 
 pub fn entity_scope(app: &cadcraft_ui_egui::CadApp, handle: cadcraft_doc::Handle) -> Option<EntityScope> {
@@ -432,6 +438,7 @@ pub fn entity_scope(app: &cadcraft_ui_egui::CadApp, handle: cadcraft_doc::Handle
         discipline: meta.discipline.code().to_string(),
         owner_account_id: meta.owner_account_id,
         revision: meta.revision,
+        entity_handle: meta.entity_handle,
     })
 }
 
@@ -720,6 +727,7 @@ impl State {
                         discipline,
                         owner_account_id: owner.clone(),
                         revision: existing_revision + 1,
+                        entity_handle: Some(*handle),
                     });
                 }) {
                     self.queue_update(*handle, existing_revision, existing_revision + 1);
@@ -1538,6 +1546,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                                     discipline,
                                     owner_account_id: owner.clone(),
                                     revision: next_revision,
+                                    entity_handle: Some(handle),
                                 });
                             }) {
                                 state.queue_update(handle, previous_revision, next_revision);
@@ -1891,8 +1900,8 @@ mod tests {
 
     #[test]
     fn slot_filter_distinguishes_primary_from_reference_scope() {
-        let primary = BimEntityMeta { floor_id: 1, discipline: Discipline::Architecture, owner_account_id: "local-owner".into(), revision: 1 };
-        let other = BimEntityMeta { floor_id: 1, discipline: Discipline::Structure, owner_account_id: "struct-01".into(), revision: 1 };
+        let primary = BimEntityMeta { floor_id: 1, discipline: Discipline::Architecture, owner_account_id: "local-owner".into(), revision: 1, entity_handle: Some(cadcraft_doc::Handle(1)) };
+        let other = BimEntityMeta { floor_id: 1, discipline: Discipline::Structure, owner_account_id: "struct-01".into(), revision: 1, entity_handle: Some(cadcraft_doc::Handle(2)) };
         assert!(slot_matches(&primary, &State::default().views[0]));
         assert!(!slot_matches(&other, &State::default().views[0]));
     }
@@ -2201,7 +2210,7 @@ mod tests {
 
     #[test]
     fn viewport_filter_matches_floor_discipline_and_optional_owner() {
-        let meta = BimEntityMeta { floor_id: 2, discipline: Discipline::Structure, owner_account_id: "struct-01".into(), revision: 1 };
+        let meta = BimEntityMeta { floor_id: 2, discipline: Discipline::Structure, owner_account_id: "struct-01".into(), revision: 1, entity_handle: Some(cadcraft_doc::Handle(2)) };
         let mut slot = ViewSlot { floor_id: 2, discipline: Discipline::Structure, owner_account_id: None, overlay_opacity: 0.3, show_other_users: true, mode: ViewMode::Reference };
         assert!(slot_matches(&meta, &slot));
         slot.floor_id = 1;
@@ -2223,17 +2232,18 @@ mod tests {
 
     #[test]
     fn entity_scope_contract_keeps_floor_discipline_and_owner() {
-        let scope=EntityScope{floor_id:3,discipline:"ELEC".into(),owner_account_id:"u-elec".into(),revision:7};
+        let scope=EntityScope{floor_id:3,discipline:"ELEC".into(),owner_account_id:"u-elec".into(),revision:7,entity_handle:Some(cadcraft_doc::Handle(0x2A))};
         assert_eq!(scope.floor_id,3);
         assert_eq!(scope.discipline,"ELEC");
         assert_eq!(scope.owner_account_id,"u-elec");
         assert_eq!(scope.revision,7);
+        assert_eq!(scope.entity_handle,Some(cadcraft_doc::Handle(0x2A)));
     }
 
     #[test]
     fn bim_metadata_roundtrips_through_entity_xdata() {
         let mut common = cadcraft_doc::Common::default();
-        let meta = BimEntityMeta { floor_id: 7, discipline: Discipline::Electrical, owner_account_id: "user-01".into(), revision: 3 };
+        let meta = BimEntityMeta { floor_id: 7, discipline: Discipline::Electrical, owner_account_id: "user-01".into(), revision: 3, entity_handle: Some(cadcraft_doc::Handle(0x2A)) };
         set_bim_meta(&mut common, &meta);
         assert_eq!(bim_meta(&common), Some(meta));
         assert!(common.xdata.iter().any(|t| t.code == 1001 && t.value == XDATA_APP));

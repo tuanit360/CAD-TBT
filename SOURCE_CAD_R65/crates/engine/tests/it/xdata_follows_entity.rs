@@ -166,6 +166,52 @@ fn a_copy_saves_its_xdata() {
 }
 
 #[test]
+fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[10,0],[10,10]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,2,"ELEC","u1",3);
+    add_bim(&mut s,b,2,"ELEC","u1",5);
+    let r=s.execute("fillet",&json!({"h1":a.hex(),"p1":[5,0],"h2":b.hex(),"p2":[10,5],"radius":1.0,"trim":true})).unwrap();
+    let arc=Handle::parse_hex(r["arc"].as_str().unwrap()).unwrap();
+    assert!(bim_payload(&s,a).contains("revision=4"));
+    assert!(bim_payload(&s,b).contains("revision=6"));
+    let p=bim_payload(&s,arc);
+    assert!(p.contains("floor=2"));
+    assert!(p.contains("discipline=ELEC"));
+    assert!(p.contains("owner=u1"));
+    assert!(p.contains("revision=1"));
+    assert!(p.contains(&format!("entity={}",arc.hex())));
+}
+
+#[test]
+fn chamfer_different_bim_scopes_does_not_assign_join_scope() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[10,0],[10,10]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,2,"STRUCT","u2",1);
+    let r=s.execute("chamfer",&json!({"h1":a.hex(),"p1":[5,0],"h2":b.hex(),"p2":[10,5],"d1":1.0,"d2":1.0,"trim":true})).unwrap();
+    let join=Handle::parse_hex(r["line"].as_str().unwrap()).unwrap();
+    let e=s.doc().unwrap().entity(join).unwrap();
+    assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
+    assert!(bim_payload(&s,a).contains("revision=2"));
+    assert!(bim_payload(&s,b).contains("revision=2"));
+}
+
+#[test]
+fn fillet_no_trim_does_not_bump_source_revisions() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[10,0],[10,10]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,2,"ELEC","u1",3);
+    add_bim(&mut s,b,2,"ELEC","u1",5);
+    let _=s.execute("fillet",&json!({"h1":a.hex(),"p1":[5,0],"h2":b.hex(),"p2":[10,5],"radius":1.0,"trim":false})).unwrap();
+    assert!(bim_payload(&s,a).contains("revision=3"));
+    assert!(bim_payload(&s,b).contains("revision=5"));
+}
+
+#[test]
 fn trim_pieces_get_new_bim_identities() {
     let mut s=Session::new();
     let target=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

@@ -245,9 +245,8 @@ fn filters_for_save(name: &str) -> [(&'static str, &'static str); 6] {
     filters
 }
 
-/// The per-user settings directory (it holds `logs/` and `autosave/`): `CADCRAFT_CONFIG_DIR` if set, else
-/// `$XDG_CONFIG_HOME/cadcraft` or `~/.config/cadcraft` on Linux and the BSDs,
-/// `~/Library/Application Support/CADCraft` on macOS, `%APPDATA%\CADCraft` on Windows.
+/// The per-user settings directory (it holds `logs/` and `autosave/`): `TBT360_CONFIG_DIR` if set,
+/// then legacy `CADCRAFT_CONFIG_DIR`, else the platform TBT360 settings directory.
 fn config_dir() -> Option<std::path::PathBuf> {
     config_dir_from(|k| std::env::var_os(k))
 }
@@ -256,7 +255,7 @@ fn config_dir() -> Option<std::path::PathBuf> {
 /// counts as unset, so a blank value never means the working directory.
 fn config_dir_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
     let set = |k: &str| var(k).filter(|v| !v.is_empty()).map(std::path::PathBuf::from);
-    if let Some(dir) = set("CADCRAFT_CONFIG_DIR") {
+    if let Some(dir) = set("TBT360_CONFIG_DIR").or_else(|| set("CADCRAFT_CONFIG_DIR")) {
         return Some(dir);
     }
     if cfg!(target_os = "macos") {
@@ -341,7 +340,7 @@ fn main() -> eframe::Result {
             Some(Err(e)) => log::warn!("no log file: {e}"),
             None => {
                 logger.stderr_only();
-                log::warn!("no log file: no settings directory (set CADCRAFT_CONFIG_DIR)");
+                log::warn!("no log file: no settings directory (set TBT360_CONFIG_DIR)");
             }
         }
     }
@@ -526,8 +525,10 @@ mod tests {
 
     #[test]
     fn the_override_variable_wins_and_empty_values_are_unset() {
-        let vars = [("CADCRAFT_CONFIG_DIR", "/tmp/cc"), ("HOME", "/home/u"), ("XDG_CONFIG_HOME", "/x"), ("APPDATA", "C:\\a")];
-        assert_eq!(config_dir_from(env(&vars)), Some(PathBuf::from("/tmp/cc")));
+        let vars = [("TBT360_CONFIG_DIR", "/tmp/tbt"), ("CADCRAFT_CONFIG_DIR", "/tmp/cc"), ("HOME", "/home/u"), ("XDG_CONFIG_HOME", "/x"), ("APPDATA", "C:\\a")];
+        assert_eq!(config_dir_from(env(&vars)), Some(PathBuf::from("/tmp/tbt")));
+        let legacy = [("CADCRAFT_CONFIG_DIR", "/tmp/cc")];
+        assert_eq!(config_dir_from(env(&legacy)), Some(PathBuf::from("/tmp/cc")));
         let empty = [("CADCRAFT_CONFIG_DIR", ""), ("HOME", ""), ("XDG_CONFIG_HOME", ""), ("APPDATA", "")];
         assert_eq!(config_dir_from(env(&empty)), None, "no usable variable means no directory, not the working directory");
         assert_eq!(config_dir_from(env(&[])), None);

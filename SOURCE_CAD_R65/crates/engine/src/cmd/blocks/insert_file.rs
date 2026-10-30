@@ -183,9 +183,10 @@ fn block_names(d: &Drawing, src: &Drawing, defining: &str) -> BTreeMap<String, S
 
 /// A copy of a source entity for this drawing: a fresh handle, block references renamed, and
 /// links to other source objects (associative dimension points) dropped.
-fn adopt(d: &mut Drawing, e: &Entity, renames: &BTreeMap<String, String>) -> Entity {
-    let mut e = e.clone();
-    e.handle = d.new_handle();
+fn adopt(d:&mut Drawing,e:&Entity,renames:&BTreeMap<String,String>)->Entity {
+    let mut e=e.clone();
+    e.handle=d.new_handle();
+    crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
     match &mut e.kind {
         EntityKind::Insert(i) => {
             if let Some(n) = renames.get(&i.block) {

@@ -60,6 +60,14 @@ jobs:
       - name: Test Vietnamese interface catalog
         run: cargo test --locked -p cadcraft-ui-egui i18n::tests -- --nocapture
 
+      - name: Test Layers and Properties palettes
+        run: |
+          cargo test --locked -p cadcraft-ui-egui layers::tests -- --nocapture
+          cargo test --locked -p cadcraft-ui-egui palettes::tests -- --nocapture
+
+      - name: Test DXF/DWG IO roundtrips
+        run: cargo test --locked -p cadcraft-io --test it -- --nocapture
+
       - name: Test native Takeoff
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
 

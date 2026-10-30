@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feature/bim-collaboration-workspaces
+      - 'feature/bim-*'
+      - 'integration/bim-collaboration'
     paths:
-      - 'SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs'
-      - 'SOURCE_CAD_R65/apps/cadcraft/src/bim_sync.rs'
-      - 'SOURCE_CAD_R65/apps/cadcraft/src/main.rs'
+      - 'SOURCE_CAD_R65/apps/cadcraft/src/**'
       - 'SOURCE_CAD_R65/crates/ui-egui/src/**'
       - 'backend/**'
       - 'BIM_COLLABORATION_ARCHITECTURE.md'
+      - 'BIM_COLLABORATION_SYNC_API.md'
       - '.github/workflows/bim-collaboration.yml'
 
 concurrency:
@@ -32,7 +32,5 @@ jobs:
           workspaces: SOURCE_CAD_R65
       - name: Check CAD app with BIM collaboration module
         run: cargo check --locked -p cadcraft
-      - name: Test BIM collaboration model
-        run: cargo test --locked -p cadcraft bim_collab::tests -- --nocapture
-      - name: Test BIM sync core
-        run: cargo test --locked -p cadcraft bim_sync::tests -- --nocapture
+      - name: Test all BIM modules
+        run: cargo test --locked -p cadcraft bim_ -- --nocapture

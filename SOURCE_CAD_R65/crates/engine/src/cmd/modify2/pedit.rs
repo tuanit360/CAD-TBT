@@ -150,10 +150,22 @@ pub(crate) fn pedit_join(s: &mut Session, h: Handle, others: &[Handle], fuzz: f6
         return Ok(0);
     }
     chain.closed = chain.start().zip(chain.end()).is_some_and(|(a, b)| a.near(b, tol)) && chain.segs.len() > 1;
-    base.vertices = chain.vertices();
-    base.closed = chain.closed;
-    let d = s.doc_mut()?;
-    d.modify_entity(h, |e| e.kind = EntityKind::LwPolyline(base))?;
+    base.vertices=chain.vertices();
+    base.closed=chain.closed;
+    let same_bim_scope={
+        let d=s.doc()?;
+        let base_key=d.entity(h).and_then(|e|crate::cmd::modify::tbt360_bim_scope_key(&e.common));
+        base_key.is_some() && joined.iter().all(|o|d.entity(*o).and_then(|e|crate::cmd::modify::tbt360_bim_scope_key(&e.common))==base_key)
+    };
+    let d=s.doc_mut()?;
+    d.modify_entity(h,|e|{
+        e.kind=EntityKind::LwPolyline(base);
+        if same_bim_scope {
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
+        } else {
+            crate::cmd::modify::strip_tbt360_bim(&mut e.common);
+        }
+    })?;
     for o in &joined {
         d.remove_entity(*o);
     }
@@ -250,7 +262,8 @@ fn pedit_apply(s: &mut Session, h: Handle, opt: &str, p: &Value) -> Result<Value
         }
         _ => return Err(bad("pedit", "unknown option")),
     }
-    set_kind(s, h, EntityKind::LwPolyline(pl))?;
+    set_kind(s,h,EntityKind::LwPolyline(pl))?;
+    s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     Ok(json!({ "handle": h.hex() }))
 }
 

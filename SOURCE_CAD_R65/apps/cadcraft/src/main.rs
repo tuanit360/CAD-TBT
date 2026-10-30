@@ -27,6 +27,7 @@ mod workspace;
 mod takeoff;
 mod bim_collab;
 mod bim_sync;
+mod bim_domain;
 mod bim_federation;
 
 use cadcraft_engine::Session;

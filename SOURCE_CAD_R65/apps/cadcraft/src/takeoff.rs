@@ -143,13 +143,16 @@ impl State {
 
     fn add_measurement_scoped(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String, scope: &Scope) -> Result<u64, String> {
         if scope.floor_id == Some(0) { return Err("BIM scope floor_id không hợp lệ".into()); }
-        if scope.discipline.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("BIM scope discipline trống".into()); }
         if scope.owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("BIM scope owner trống".into()); }
+        let mut normalized_scope=scope.clone();
+        if let Some(value)=scope.discipline.as_deref() {
+            normalized_scope.discipline=Some(normalize_discipline(value).ok_or_else(||"BIM scope discipline không hợp lệ".to_string())?);
+        }
         let id=self.add_measurement(kind,points,raw_value,layer)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
-            record.scope=scope.clone();
+            record.scope=normalized_scope.clone();
         }
-        self.audit_change(id,"SCOPE",None,Some(format!("floor={:?};discipline={:?};owner={:?}",scope.floor_id,scope.discipline,scope.owner_account_id)));
+        self.audit_change(id,"SCOPE",None,Some(format!("floor={:?};discipline={:?};owner={:?}",normalized_scope.floor_id,normalized_scope.discipline,normalized_scope.owner_account_id)));
         Ok(id)
     }
 
@@ -1129,7 +1132,7 @@ mod tests {
         reopened.load_json(&json).unwrap();
         assert_eq!(reopened.records[0].scope.floor_id,Some(1));
         assert_eq!(reopened.records[1].scope.floor_id,Some(2));
-        assert_eq!(reopened.records[0].scope.discipline.as_deref(),Some("Kiến trúc"));
+        assert_eq!(reopened.records[0].scope.discipline.as_deref(),Some("ARCH"));
     }
 
     #[test]

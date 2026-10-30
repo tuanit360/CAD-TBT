@@ -51,17 +51,18 @@ impl ViewportLayout {
         Ok(())
     }
 
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
     #[test]
     fn coordination_view_can_reference_all_disciplines_on_same_floor() {
         let v=ViewScope{floor_id:"F2".into(),discipline:Some("ARCH".into()),owner_account_id:None,workset_id:None,role:ViewRole::Coordination,reference_opacity:0.2};
         let o=ObjectScope{floor_id:"F2".into(),discipline:"ELEC".into(),owner_account_id:"u".into(),workset_id:None};
         assert_eq!(classify(&v,&o,true),RenderClass::Primary);
     }
-}
 
-#[cfg(test)]
-mod tests{
-    use super::*;
     #[test]
     fn one_edit_view_and_reference_views_are_valid(){
         let l=ViewportLayout{scopes:vec![

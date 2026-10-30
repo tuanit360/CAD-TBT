@@ -20,6 +20,23 @@ impl State {
             None
         }
     }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "version": 1,
+            "drawing_distance": self.drawing_distance,
+            "real_distance_m": self.real_distance_m
+        })
+    }
+
+    fn load_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
+        let drawing_distance = value.get("drawing_distance").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu drawing_distance".to_string())?;
+        let real_distance_m = value.get("real_distance_m").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu real_distance_m".to_string())?;
+        let candidate = Self { drawing_distance, real_distance_m };
+        if candidate.scale_to_m().is_none() { return Err("Dữ liệu hiệu chỉnh tỷ lệ không hợp lệ".into()); }
+        *self = candidate;
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -207,6 +224,27 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
     let lf = scale.unwrap_or(1.0);
     let af = lf * lf;
 
+    ui.horizontal(|ui| {
+        if ui.button("Lưu dự án đo bóc").clicked() {
+            if let Some(path) = rfd::FileDialog::new().add_filter("TBT360 QTO Project", &["json"]).set_file_name("TBT360_QTO_PROJECT.json").save_file() {
+                match serde_json::to_vec_pretty(&state.to_json()).map_err(|e| e.to_string()).and_then(|data| std::fs::write(&path, data).map_err(|e| e.to_string())) {
+                    Ok(()) => ui.ctx().debug_painter().text(egui::pos2(16.0, 16.0), egui::Align2::LEFT_TOP, "Đã lưu dự án đo bóc", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GREEN),
+                    Err(e) => eprintln!("Không thể lưu dự án đo bóc: {e}"),
+                };
+            }
+        }
+        if ui.button("Mở dự án đo bóc").clicked() {
+            if let Some(path) = rfd::FileDialog::new().add_filter("TBT360 QTO Project", &["json"]).pick_file() {
+                match std::fs::read(&path).map_err(|e| e.to_string())
+                    .and_then(|data| serde_json::from_slice::<serde_json::Value>(&data).map_err(|e| e.to_string()))
+                    .and_then(|value| state.load_json(&value)) {
+                    Ok(()) => ui.ctx().debug_painter().text(egui::pos2(16.0, 34.0), egui::Align2::LEFT_TOP, "Đã mở dự án đo bóc", egui::FontId::proportional(14.0), egui::Color32::LIGHT_GREEN),
+                    Err(e) => eprintln!("Không thể mở dự án đo bóc: {e}"),
+                };
+            }
+        }
+    });
+
     ui.separator();
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("native_qto_table").striped(true).min_col_width(105.0).show(ui, |ui| {
@@ -249,6 +287,16 @@ mod tests {
     use super::*;
     use cadcraft_doc::geom::PolyVertex;
     use cadcraft_doc::geom::Vec2;
+
+    #[test]
+    fn qto_project_json_roundtrip_preserves_calibration() {
+        let original = State { drawing_distance: 2500.0, real_distance_m: 2.5 };
+        let mut restored = State::default();
+        restored.load_json(&original.to_json()).unwrap();
+        assert!((restored.drawing_distance - 2500.0).abs() < 1e-12);
+        assert!((restored.real_distance_m - 2.5).abs() < 1e-12);
+        assert!((restored.scale_to_m().unwrap() - 0.001).abs() < 1e-12);
+    }
 
     #[test]
     fn calibration_scale_converts_length_and_area() {

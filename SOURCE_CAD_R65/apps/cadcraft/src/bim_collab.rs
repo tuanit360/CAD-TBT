@@ -457,6 +457,16 @@ impl Default for State {
 }
 
 impl State {
+    fn apply_native_viewports(&self, app: &mut cadcraft_ui_egui::CadApp) -> Result<(), String> {
+        let params = match self.layout {
+            ViewLayout::One => serde_json::json!({ "option": "single" }),
+            ViewLayout::Two => serde_json::json!({ "option": "2", "arrangement": "vertical" }),
+            ViewLayout::Three => serde_json::json!({ "option": "3", "arrangement": "right" }),
+            ViewLayout::Four => serde_json::json!({ "option": "4" }),
+        };
+        app.session.execute("-vports", &params).map(|_| ()).map_err(|e| e.to_string())
+    }
+
     fn start_work_session(&mut self, app: &cadcraft_ui_egui::CadApp) {
         self.work_session_known_handles = app.session.doc().map(|d| d.model.handles()).unwrap_or_default();
         self.work_session_active = true;
@@ -961,7 +971,13 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         for layout in [ViewLayout::One, ViewLayout::Two, ViewLayout::Three, ViewLayout::Four] {
             ui.selectable_value(&mut state.layout, layout, layout.label());
         }
+        if ui.button("Áp dụng viewport CAD thật").clicked() {
+            if let Err(e) = state.apply_native_viewports(app) {
+                eprintln!("BIM viewport: {e}");
+            }
+        }
     });
+    ui.label("Bố cục dùng trực tiếp VPORTS của engine CAD; mỗi tile giữ camera riêng. Scope BIM của từng tile được quản lý ở cấu hình bên dưới.");
 
     let slots = state.layout.slots();
     egui::Grid::new("bim_view_grid").num_columns(if slots == 1 { 1 } else { 2 }).spacing([8.0, 8.0]).show(ui, |ui| {
@@ -1074,6 +1090,14 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn view_layout_maps_to_expected_native_viewport_count() {
+        assert_eq!(ViewLayout::One.slots(), 1);
+        assert_eq!(ViewLayout::Two.slots(), 2);
+        assert_eq!(ViewLayout::Three.slots(), 3);
+        assert_eq!(ViewLayout::Four.slots(), 4);
+    }
 
     #[test]
     fn work_session_starts_and_stops_without_losing_scope() {

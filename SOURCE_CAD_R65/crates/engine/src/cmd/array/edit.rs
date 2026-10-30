@@ -253,8 +253,9 @@ fn open_source(s: &mut Session, h: Handle, item: (u32, u32, u32)) -> Result<Vec<
     let d = s.doc_mut()?;
     let mut out = Vec::new();
     for e in src.entities.iter() {
-        let mut ne = (**e).clone();
-        ne.handle = d.new_handle();
+        let mut ne=(**e).clone();
+        ne.handle=d.new_handle();
+        super::super::modify::refresh_tbt360_bim_copy_identity(&mut ne.common,ne.handle);
         ne.kind.transform(&m);
         out.push(ne.handle);
         d.ensure_layer(&ne.common.layer);
@@ -331,7 +332,8 @@ fn close_source(s: &mut Session, save: bool) -> Result<Value> {
     let name = d.anonymous_block_name("*U");
     let mut nb = Block::new(&name);
     for mut e in ents {
-        e.handle = d.new_handle();
+        e.handle=d.new_handle();
+        super::super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         e.kind.transform(&inv);
         nb.entities.push(e);
     }
@@ -340,7 +342,8 @@ fn close_source(s: &mut Session, save: bool) -> Result<Value> {
         d.remove_entity(*h);
     }
     p.source = name;
-    rebuild(s, ed.array, p, None)?;
+    rebuild(s,ed.array,p,None)?;
+    s.doc_mut()?.modify_entity(ed.array,|e|super::super::modify::bump_tbt360_bim_revision(&mut e.common,ed.array))?;
     s.set_selection(Vec::new());
     Ok(json!({ "saved": true }))
 }
@@ -462,9 +465,10 @@ pub(super) fn run_arrayedit(s: &mut Session, p: &Value) -> Result<Value> {
     if bool_or(p, "reset", false) {
         let (_, _, mut a) = array_of(s.doc()?, h)?;
         a.replaced.clear();
-        rebuild(s, h, a, None)?;
+        rebuild(s,h,a,None)?;
+        s.doc_mut()?.modify_entity(h,|e|super::super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     }
-    if let Some(r) = p.get("replace").filter(|v| !v.is_null()) {
+    if let Some(r)=p.get("replace").filter(|v| !v.is_null()) {
         let hs = targets(s, r)?;
         let base = point_param(r, "base").unwrap_or_else(|| s.doc().map(|d| centroid(d, &hs)).unwrap_or_default());
         let name = block_from(s, h, &hs, base)?;
@@ -479,16 +483,19 @@ pub(super) fn run_arrayedit(s: &mut Session, p: &Value) -> Result<Value> {
             }
             _ => return Err(bad("arrayedit", "`replace.items` must be a list of [i, j, level] or \"source\"")),
         }
-        rebuild(s, h, a, None)?;
+        rebuild(s,h,a,None)?;
+        s.doc_mut()?.modify_entity(h,|e|super::super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     }
-    if let Some(b) = point_param(p, "base") {
-        rebase(s, h, b)?;
+    if let Some(b)=point_param(p,"base") {
+        rebase(s,h,b)?;
+        s.doc_mut()?.modify_entity(h,|e|super::super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     }
     let (_, _, mut a) = array_of(s.doc()?, h)?;
     let before = a.clone();
     apply_params(&mut a, p, &to_local)?;
-    if a != before {
-        rebuild(s, h, a, None)?;
+    if a!=before {
+        rebuild(s,h,a,None)?;
+        s.doc_mut()?.modify_entity(h,|e|super::super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     }
     if let Some(src) = p.get("source").filter(|v| !v.is_null()) {
         let item = src

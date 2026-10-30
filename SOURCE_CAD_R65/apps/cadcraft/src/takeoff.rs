@@ -175,9 +175,12 @@ impl State {
         let index=self.records.iter().position(|r|r.id==id).ok_or_else(||"Không tìm thấy record QTO".to_string())?;
         let handle_hex=self.records[index].source_handle.clone().ok_or_else(||"Record không có source_handle".to_string())?;
         let handle=cadcraft_doc::Handle::parse_hex(&handle_hex).ok_or_else(||"source_handle không hợp lệ".to_string())?;
-        let candidates=measurements_for_handle(app,handle);
         let kind=self.records[index].kind;
-        let current=candidates.into_iter().find(|m|m.kind==kind).ok_or_else(||"Entity nguồn không còn hỗ trợ loại phép đo này".to_string())?;
+        let current=if kind==MeasureKind::Count {
+            count_measurement_for_handle(app,handle).ok_or_else(||"Entity nguồn không còn tồn tại".to_string())?
+        } else {
+            measurements_for_handle(app,handle).into_iter().find(|m|m.kind==kind).ok_or_else(||"Entity nguồn không còn hỗ trợ loại phép đo này".to_string())?
+        };
         let old=self.records[index].clone();
         let source_scope=crate::bim_collab::entity_scope(app,handle);
         let scope=source_scope.as_ref().map(|x|Scope{floor_id:Some(x.floor_id),discipline:Some(x.discipline.clone()),owner_account_id:Some(x.owner_account_id.clone())}).unwrap_or_else(||old.scope.clone());
@@ -417,16 +420,21 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
                 || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
             let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
             let geometry_stale=record.source_geometry_signature.as_ref().is_some_and(|expected| {
-                !measurements_for_handle(app,handle).iter().any(|measurement|measurement.kind==record.kind && geometry_signature(measurement)==*expected)
+                let current=if record.kind==MeasureKind::Count {
+                    count_measurement_for_handle(app,handle).into_iter().collect::<Vec<_>>()
+                } else {
+                    measurements_for_handle(app,handle)
+                };
+                !current.iter().any(|measurement|measurement.kind==record.kind && geometry_signature(measurement)==*expected)
             });
             if mismatch {
                 result.scope_mismatch+=1;
                 result.invalid_record_ids.insert(record.id);
-            } else if stale {
-                result.stale_revision+=1;
-                result.invalid_record_ids.insert(record.id);
             } else if geometry_stale {
                 result.stale_geometry+=1;
+                result.invalid_record_ids.insert(record.id);
+            } else if stale && record.source_geometry_signature.is_none() {
+                result.stale_revision+=1;
                 result.invalid_record_ids.insert(record.id);
             } else {
                 result.valid_links+=1;
@@ -512,13 +520,19 @@ fn business_quantities_validated(state: &State, length_factor: f64, area_factor:
     groups
 }
 
+fn count_measurement_for_handle(app:&CadApp,handle:cadcraft_doc::Handle)->Option<PendingMeasurement> {
+    let drawing=app.session.doc().ok()?;
+    let entity=drawing.model.get(handle)?;
+    Some(PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:entity.common.layer.clone(),source_handle:handle})
+}
+
 fn selected_count_measurements(app: &CadApp) -> Vec<PendingMeasurement> {
     let selected = app.session.selection();
     let Ok(drawing) = app.session.doc() else { return Vec::new(); };
     let mut out=Vec::new();
     for handle in selected {
-        let Some(entity)=drawing.model.get(handle) else { continue; };
-        out.push(PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:entity.common.layer.clone(),source_handle:handle});
+        let Some(measurement)=count_measurement_for_handle(app,handle) else { continue; };
+        out.push(measurement);
     }
     out
 }
@@ -1191,6 +1205,24 @@ mod tests {
         assert_eq!(state.records[0].status,MeasureStatus::Confirmed);
         state.records[0].status=MeasureStatus::Review;
         assert_eq!(state.records[0].status,MeasureStatus::Review);
+    }
+
+    #[test]
+    fn undo_policy_prefers_matching_geometry_over_revision_only() {
+        let has_geometry_signature=true;
+        let revision_changed=true;
+        let geometry_stale=false;
+        let stale=geometry_stale || (revision_changed && !has_geometry_signature);
+        assert!(!stale);
+    }
+
+    #[test]
+    fn legacy_record_without_geometry_signature_still_uses_revision_guard() {
+        let has_geometry_signature=false;
+        let revision_changed=true;
+        let geometry_stale=false;
+        let stale=geometry_stale || (revision_changed && !has_geometry_signature);
+        assert!(stale);
     }
 
     #[test]

@@ -111,6 +111,8 @@ jobs:
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
       - name: Test DXF/DWG IO roundtrips
         run: cargo test --locked -p cadcraft-io --test it -- --nocapture
+      - name: Test Undo Redo control
+        run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
       - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 

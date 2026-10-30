@@ -1219,6 +1219,40 @@ mod tests {
     }
 
     #[test]
+    fn qto_hatch_loop_metrics_return_perimeter_and_net_area() {
+        let outer=cadcraft_doc::HatchLoop{vertices:vec![
+            PolyVertex::new(Vec2::new(0.0,0.0)),PolyVertex::new(Vec2::new(10.0,0.0)),
+            PolyVertex::new(Vec2::new(10.0,10.0)),PolyVertex::new(Vec2::new(0.0,10.0))
+        ],outer:true,sources:Vec::new()};
+        let hole=cadcraft_doc::HatchLoop{vertices:vec![
+            PolyVertex::new(Vec2::new(2.0,2.0)),PolyVertex::new(Vec2::new(4.0,2.0)),
+            PolyVertex::new(Vec2::new(4.0,4.0)),PolyVertex::new(Vec2::new(2.0,4.0))
+        ],outer:false,sources:Vec::new()};
+        let (perimeter,area,points)=hatch_loop_metrics(&[outer,hole]).unwrap();
+        assert!((perimeter-48.0).abs()<1e-10);
+        assert!((area-96.0).abs()<1e-10);
+        assert_eq!(points.len(),8);
+    }
+
+    #[test]
+    fn qto_region_metric_contract_matches_hatch_loop_policy() {
+        let region=cadcraft_doc::Region::from_loop(vec![
+            PolyVertex::new(Vec2::new(0.0,0.0)),PolyVertex::new(Vec2::new(4.0,0.0)),
+            PolyVertex::new(Vec2::new(4.0,3.0)),PolyVertex::new(Vec2::new(0.0,3.0))
+        ]);
+        assert!((region.area()-12.0).abs()<1e-10);
+        assert!((region.perimeter()-14.0).abs()<1e-10);
+    }
+
+    #[test]
+    fn qto_dimension_policy_excludes_angular_dimensions_from_length_totals() {
+        use cadcraft_doc::DimKind;
+        assert!(matches!(DimKind::Angular,DimKind::Angular|DimKind::Angular3P));
+        assert!(!matches!(DimKind::Aligned,DimKind::Angular|DimKind::Angular3P));
+        assert!(!matches!(DimKind::Radius,DimKind::Angular|DimKind::Angular3P));
+    }
+
+    #[test]
     fn measurement_lifecycle_undo_redo_and_project_roundtrip() {
         let mut state = State { drawing_distance: 1000.0, real_distance_m: 1.0, ..Default::default() };
         let id = state.add_measurement(MeasureKind::Length, vec![[0.0,0.0],[2500.0,0.0]], 2500.0, "A-WALL".into()).unwrap();

@@ -301,7 +301,7 @@ pub(crate) fn make_assoc(s: &mut Session, objs: &[Handle], base: Vec2, mut p: Ar
     let to_local = Mat3::translate(-base);
     for mut e in ents {
         e.handle = d.new_handle();
-        super::modify::transform::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
+        super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         e.kind.transform(&to_local);
         src.entities.push(e);
     }

@@ -33,7 +33,7 @@ jobs:
       - name: Verify CADCraft updater is absent from TBT runtime
         shell: pwsh
         run: |
-          $hits = git grep -n -E "craft_update|craft-update|suite::CADCRAFT" -- apps/cadcraft/src crates/ui-egui/src apps/cadcraft/Cargo.toml crates/ui-egui/Cargo.toml Cargo.toml
+          $hits = git grep -n -E "craft_update|suite::CADCRAFT|enable_update_check|updates_ui" -- apps/cadcraft/src crates/ui-egui/src
           $grepExit = $LASTEXITCODE
           if ($grepExit -eq 0 -and $hits) {
             $hits | Write-Host

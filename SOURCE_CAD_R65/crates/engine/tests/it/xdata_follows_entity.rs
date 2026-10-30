@@ -166,6 +166,90 @@ fn a_copy_saves_its_xdata() {
 }
 
 #[test]
+fn break_pieces_get_unique_bim_identity() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",5);
+    let r=s.execute("break",&json!({"handle":h.hex(),"p1":[3,0],"p2":[7,0]})).unwrap();
+    let hs=r["handles"].as_array().unwrap().iter().filter_map(|v|v.as_str().and_then(Handle::parse_hex)).collect::<Vec<_>>();
+    assert_eq!(hs.len(),2);
+    assert!(s.doc().unwrap().entity(h).is_none());
+    for nh in hs {
+        let p=bim_payload(&s,nh);
+        assert!(p.contains("floor=2"));
+        assert!(p.contains("discipline=ELEC"));
+        assert!(p.contains("revision=1"));
+        assert!(p.contains(&format!("entity={}",nh.hex())));
+    }
+}
+
+#[test]
+fn join_same_scope_creates_one_new_bim_identity() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[5,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",2);
+    add_bim(&mut s,b,1,"ARCH","u1",3);
+    let r=s.execute("join",&json!({"handles":[a.hex(),b.hex()]})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=1"));
+    assert!(p.contains("discipline=ARCH"));
+    assert!(p.contains("owner=u1"));
+    assert!(p.contains("revision=1"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn join_different_scopes_is_left_unscoped() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[5,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,2,"STRUCT","u2",1);
+    let r=s.execute("join",&json!({"handles":[a.hex(),b.hex()]})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let e=s.doc().unwrap().entity(h).unwrap();
+    assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
+}
+
+#[test]
+fn pedit_vertex_move_keeps_identity_and_bumps_revision() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("pline",&json!({"points":[[0,0],[5,0],[10,0]]})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",4);
+    s.execute("pedit",&json!({"handle":h.hex(),"option":"vertex","index":1,"action":"move","to":[5,2]})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=5"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn move_and_undo_restore_bim_revision_and_geometry() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",7);
+    s.execute("move",&json!({"handles":[h.hex()],"delta":[5,0]})).unwrap();
+    assert!(bim_payload(&s,h).contains("revision=8"));
+    s.execute("undo",&json!({})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=7"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn delete_and_undo_restore_same_bim_entity_identity() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,3,"STRUCT","u2",6);
+    let before=bim_payload(&s,h);
+    s.execute("erase",&json!({"handles":[h.hex()]})).unwrap();
+    assert!(s.doc().unwrap().entity(h).is_none());
+    s.execute("undo",&json!({})).unwrap();
+    assert_eq!(bim_payload(&s,h),before);
+}
+
+#[test]
 fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
     let mut s=Session::new();
     let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

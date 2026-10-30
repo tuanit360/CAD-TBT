@@ -185,8 +185,9 @@ fn run_arrayitemremove(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("arrayitemremove", "that array item is already suppressed"));
     }
     a.suppressed.push(cadcraft_doc::ArrayItemRef { i: item.0, j: item.1, level: item.2 });
-    rebuild(s, h, a, None)?;
-    let d = s.doc()?;
+    rebuild(s,h,a,None)?;
+    s.doc_mut()?.modify_entity(h,|e|super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
+    let d=s.doc()?;
     let e = d.entity(h).ok_or_else(|| bad("arrayitemremove", "array disappeared after rebuild"))?;
     let a = d.array_params(e).ok_or_else(|| bad("arrayitemremove", "array metadata was lost after rebuild"))?;
     Ok(json!({ "handle": h.hex(), "item": [item.0, item.1, item.2], "visibleItemCount": a.visible_item_count() }))
@@ -219,9 +220,10 @@ fn run_arrayitemrestore(s: &mut Session, p: &Value) -> Result<Value> {
     if restored == 0 {
         return Ok(json!({ "handle": h.hex(), "restored": 0, "visibleItemCount": a.visible_item_count() }));
     }
-    rebuild(s, h, a, None)?;
-    let d = s.doc()?;
-    let e = d.entity(h).ok_or_else(|| bad("arrayitemrestore", "array disappeared after rebuild"))?;
+    rebuild(s,h,a,None)?;
+    s.doc_mut()?.modify_entity(h,|e|super::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
+    let d=s.doc()?;
+    let e=d.entity(h).ok_or_else(||bad("arrayitemrestore","array disappeared after rebuild"))?;
     let a = d.array_params(e).ok_or_else(|| bad("arrayitemrestore", "array metadata was lost after rebuild"))?;
     Ok(json!({ "handle": h.hex(), "restored": restored, "visibleItemCount": a.visible_item_count() }))
 }

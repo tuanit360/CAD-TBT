@@ -74,6 +74,19 @@ impl State {
         }
     }
 
+    fn calibrate_two_points(&mut self, a: [f64; 2], b: [f64; 2], real_distance_m: f64) -> Result<f64, String> {
+        if !a.into_iter().chain(b).all(f64::is_finite) || !real_distance_m.is_finite() || real_distance_m <= 0.0 {
+            return Err("Điểm hoặc chiều dài hiệu chỉnh không hợp lệ".into());
+        }
+        let drawing_distance = (b[0] - a[0]).hypot(b[1] - a[1]);
+        if drawing_distance <= 1e-12 {
+            return Err("Hai điểm hiệu chỉnh trùng nhau".into());
+        }
+        self.drawing_distance = drawing_distance;
+        self.real_distance_m = real_distance_m;
+        self.scale_to_m().ok_or_else(|| "Không thể tính tỷ lệ hiệu chỉnh".into())
+    }
+
     fn snapshot(&mut self) {
         self.undo.push(self.records.clone());
         if self.undo.len() > 100 { self.undo.remove(0); }
@@ -560,6 +573,15 @@ mod tests {
         assert!(state.delete_measurement(id));
         assert!(state.records.is_empty());
         assert!(state.audit.iter().any(|a| a.record_id == id && a.action == "DELETE"));
+    }
+
+    #[test]
+    fn two_point_calibration_uses_world_distance_and_real_length() {
+        let mut state = State::default();
+        let scale = state.calibrate_two_points([10.0,20.0],[3010.0,4020.0],5.0).unwrap();
+        assert!((state.drawing_distance - 5000.0).abs() < 1e-12);
+        assert!((scale - 0.001).abs() < 1e-12);
+        assert!(state.calibrate_two_points([1.0,1.0],[1.0,1.0],2.0).is_err());
     }
 
     #[test]

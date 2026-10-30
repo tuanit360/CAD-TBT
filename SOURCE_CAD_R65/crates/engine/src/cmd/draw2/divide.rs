@@ -9,13 +9,14 @@ fn chain_of(s: &Session, h: Handle) -> Result<Chain> {
     Chain::of(&e.kind).ok_or_else(|| other("Cannot divide/measure that object."))
 }
 
-fn place_markers(s: &mut Session, at: &[(Vec2, Vec2)], block: Option<&str>, align: bool) -> Result<Vec<String>> {
+fn place_markers(s:&mut Session,at:&[(Vec2,Vec2)],block:Option<&str>,align:bool,source:Handle)->Result<Vec<String>> {
     let mut out = Vec::new();
     for (p, t) in at {
         let h = match block {
             Some(b) => crate::cmd::blocks::insert(s, b, *p, 1.0, if align { t.angle() } else { 0.0 }, &serde_json::Map::new())?,
             None => s.add_entity(EntityKind::Point(Point { p: v3(*p), angle: 0.0 }))?,
         };
+        crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&[source]);
         out.push(h.hex());
     }
     Ok(out)
@@ -58,7 +59,7 @@ pub(super) fn run_divide(s: &mut Session, p: &Value) -> Result<Value> {
     check_block(s, block.as_deref())?;
     let c = chain_of(s, h)?;
     let pts = divide_points(&c, n as usize);
-    let hs = place_markers(s, &pts, block.as_deref(), bool_or(p, "align", true))?;
+    let hs=place_markers(s,&pts,block.as_deref(),bool_or(p,"align",true),h)?;
     Ok(json!({ "handles": hs }))
 }
 

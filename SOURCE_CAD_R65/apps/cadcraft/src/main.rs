@@ -29,6 +29,15 @@ mod bim_collab;
 mod bim_sync;
 mod bim_domain;
 mod bim_presence;
+mod bim_federation;
+mod bim_api;
+mod bim_offline;
+mod bim_workset;
+mod bim_access;
+mod bim_coordinates;
+mod bim_viewport;
+mod bim_coordination;
+mod bim_clash;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};
@@ -142,7 +151,12 @@ impl eframe::App for App {
                 self.cad.ui(ui);
                 bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
             }
-            MainTab::Takeoff => takeoff::panel(ui, &self.cad, &mut self.takeoff_state),
+            MainTab::Takeoff => {
+                ui.columns(2, |columns| {
+                    self.cad.ui(&mut columns[0]);
+                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state);
+                });
+            }
             MainTab::Pdf => {
                 ui.heading("PDF / BẢN VẼ");
                 ui.label("Khu vực tích hợp PDF nhiều trang, hiệu chỉnh theo trang, overlay và annotation. Chức năng đang được chuyển từ QTO R134 sang native.");

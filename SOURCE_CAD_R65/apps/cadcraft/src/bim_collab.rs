@@ -415,6 +415,24 @@ fn set_bim_meta(common: &mut cadcraft_doc::Common, meta: &BimEntityMeta) {
     common.xdata = out;
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EntityScope {
+    pub floor_id: u64,
+    pub discipline: String,
+    pub owner_account_id: String,
+}
+
+pub fn entity_scope(app: &cadcraft_ui_egui::CadApp, handle: cadcraft_doc::Handle) -> Option<EntityScope> {
+    let doc=app.session.doc().ok()?;
+    let entity=doc.model.get(handle)?;
+    let meta=bim_meta(&entity.common)?;
+    Some(EntityScope {
+        floor_id: meta.floor_id,
+        discipline: meta.discipline.label().to_string(),
+        owner_account_id: meta.owner_account_id,
+    })
+}
+
 fn bim_meta(common: &cadcraft_doc::Common) -> Option<BimEntityMeta> {
     common.xdata.windows(2).find_map(|pair| {
         if pair[0].code == 1001 && pair[0].value == XDATA_APP && pair[1].code == 1000 {
@@ -2199,6 +2217,14 @@ mod tests {
         assert_eq!(conflict.base_revision, 4);
         assert_eq!(conflict.local_revision, 5);
         assert_eq!(conflict.remote_revision, 6);
+    }
+
+    #[test]
+    fn entity_scope_contract_keeps_floor_discipline_and_owner() {
+        let scope=EntityScope{floor_id:3,discipline:"Điện".into(),owner_account_id:"u-elec".into()};
+        assert_eq!(scope.floor_id,3);
+        assert_eq!(scope.discipline,"Điện");
+        assert_eq!(scope.owner_account_id,"u-elec");
     }
 
     #[test]

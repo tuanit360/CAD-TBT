@@ -155,7 +155,12 @@ impl eframe::App for App {
                 ui.columns(2, |columns| {
                     self.cad.ui(&mut columns[0]);
                     bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
-                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state);
+                    let qto_scope=takeoff::Scope {
+                        floor_id: Some(self.bim_collab_state.active_floor_id),
+                        discipline: Some(self.bim_collab_state.active_discipline.label().to_string()),
+                        owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
+                    };
+                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state, &qto_scope);
                 });
             }
             MainTab::Pdf => {

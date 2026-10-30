@@ -88,15 +88,20 @@ fn chain_run(s: &mut Session, p: &Value, baseline: bool) -> Result<Value> {
     // One snap index for the whole chain: looking up each new point's object by scanning the
     // drawing made long chains quadratic (the added dimensions are no snap targets).
     let snaps = if assoc_enabled(s) { Some(crate::assoc::SnapIndex::new(s.doc()?, &s.space())) } else { None };
-    let mut out = Vec::new();
+    let mut out=Vec::new();
+    let mut source=s.last_dim;
     for q in pts {
-        let prev = last_linear(s).ok_or_else(|| bad(id, "no linear dimension to continue"))?;
+        let prev=last_linear(s).ok_or_else(||bad(id,"no linear dimension to continue"))?;
         let mut k = chained(s, &prev, q, baseline);
         if let (Some(ix), EntityKind::Dimension(dm)) = (&snaps, &mut k) {
             dm.assoc = ix.auto_assoc(&[("p13", dm.p13.xy()), ("p14", dm.p14.xy())]);
         }
-        let h = s.add_entity(k)?;
-        s.last_dim = Some(h);
+        let h=s.add_entity(k)?;
+        if let Some(src)=source {
+            crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&[src]);
+        }
+        source=Some(h);
+        s.last_dim=Some(h);
         out.push(h.hex());
     }
     Ok(json!({ "handles": out }))

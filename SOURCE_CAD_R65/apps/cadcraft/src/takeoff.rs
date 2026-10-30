@@ -480,6 +480,10 @@ fn scoped_business_quantities_validated(state: &State, length_factor: f64, area_
 }
 
 fn business_quantities(state: &State, length_factor: f64, area_factor: f64) -> BTreeMap<(String, String, String), BusinessQuantity> {
+    business_quantities_validated(state,length_factor,area_factor,&std::collections::BTreeSet::new())
+}
+
+fn business_quantities_validated(state: &State, length_factor: f64, area_factor: f64, invalid_record_ids:&std::collections::BTreeSet<u64>) -> BTreeMap<(String, String, String), BusinessQuantity> {
     let mut groups = BTreeMap::<(String, String, String), BusinessQuantity>::new();
     for record in &state.records {
         let work_group = if record.work_group.trim().is_empty() { "(Chưa gán nhóm)".to_string() } else { record.work_group.trim().to_string() };
@@ -494,6 +498,7 @@ fn business_quantities(state: &State, length_factor: f64, area_factor: f64) -> B
                 group.excluded_records += 1;
             }
             MeasureStatus::Confirmed => {
+                if invalid_record_ids.contains(&record.id) { continue; }
                 group.confirmed_records += 1;
                 match record.kind {
                     MeasureKind::Length => group.length += record.raw_value * length_factor,
@@ -842,7 +847,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let mut action: Option<(u64, u8)> = None;
         egui::ScrollArea::horizontal().show(ui, |ui| {
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
-                for h in ["ID","Handle nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
+                for h in ["ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
                     let value = match record.kind {
@@ -853,6 +858,13 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "lần" };
                     ui.label(record.id.to_string());
                     ui.label(record.source_handle.as_deref().unwrap_or("-"));
+                    if source_validation.invalid_record_ids.contains(&record.id) {
+                        ui.colored_label(egui::Color32::YELLOW,"STALE");
+                    } else if record.source_handle.is_some() {
+                        ui.label("OK");
+                    } else {
+                        ui.label("Legacy");
+                    }
                     ui.label(record.scope.floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
                     ui.label(record.scope.discipline.as_deref().unwrap_or("-"));
                     ui.label(record.scope.owner_account_id.as_deref().unwrap_or("-"));
@@ -949,7 +961,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     ui.separator();
     ui.strong("Tổng hợp nghiệp vụ đã xác nhận");
     ui.label("Chỉ record trạng thái Đã xác nhận được cộng vào khối lượng; Review và Loại vẫn hiển thị để kiểm soát.");
-    let business_groups = business_quantities(state, lf, af);
+    let business_groups = business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);
     egui::ScrollArea::horizontal().show(ui, |ui| {
         egui::Grid::new("native_qto_business_summary").striped(true).show(ui, |ui| {
             for h in ["Nhóm công việc","Mã công tác","Layer","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
@@ -1143,6 +1155,18 @@ mod tests {
         let mut state=State::default();
         let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
+    }
+
+    #[test]
+    fn validated_business_summary_excludes_invalid_confirmed_record() {
+        let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
+        let id=state.add_measurement(MeasureKind::Count,Vec::new(),5.0,"DEVICE".into()).unwrap();
+        assert!(state.set_status(id,MeasureStatus::Confirmed));
+        let invalid=std::collections::BTreeSet::from([id]);
+        let groups=business_quantities_validated(&state,1.0,1.0,&invalid);
+        let q=groups.values().next().unwrap();
+        assert_eq!(q.confirmed_records,0);
+        assert_eq!(q.count,0.0);
     }
 
     #[test]

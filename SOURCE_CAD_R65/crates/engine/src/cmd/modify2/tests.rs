@@ -645,7 +645,7 @@ fn arraypath_json_and_command_line() {
 fn arraypath_associative_keeps_path_model_and_serializable_samples() {
     let mut s = Session::new();
     let dot = h(&s.execute("circle", &json!({"center": [0, 1], "radius": 0.25})).unwrap());
-    let path = h(&s.execute("line", &json!({"points": [[0, 0], [10, 0]})).unwrap());
+    let path = h(&s.execute("line", &json!({"points": [[0, 0], [10, 0]]}).unwrap());
     let r = s.execute("arraypath", &json!({"handles": [dot], "path": path, "count": 6, "associative": true})).unwrap();
     let ah = r["handle"].as_str().unwrap();
     assert_eq!(r["associative"], true);

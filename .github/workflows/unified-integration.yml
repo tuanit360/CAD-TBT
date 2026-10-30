@@ -15,6 +15,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Cargo metadata
+        run: cargo metadata --locked --no-deps
+      - name: Check unified CAD app
+        run: cargo check --locked -p cadcraft
+      - name: Test BIM modules
+        run: cargo test --locked -p cadcraft bim_ -- --nocapture
+      - name: Test native QTO
+        run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+      - name: Full workspace check
+        run: cargo check --workspace --locked
+
   unified:
     runs-on: windows-latest
     defaults:

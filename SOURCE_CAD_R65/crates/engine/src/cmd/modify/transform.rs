@@ -129,7 +129,10 @@ pub(crate) fn transform_entities(s: &mut Session, hs: &[Handle], m: &Mat3, copy:
             if locked {
                 continue;
             }
-            d.modify_entity(*h, |e| e.kind.transform(m))?;
+            d.modify_entity(*h,|e|{
+                e.kind.transform(m);
+                bump_tbt360_bim_revision(&mut e.common,*h);
+            })?;
             out.push(*h);
         }
     }

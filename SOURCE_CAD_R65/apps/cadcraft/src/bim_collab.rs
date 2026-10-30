@@ -129,6 +129,28 @@ pub struct AuthSession {
     pub email: String,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ModelHealth {
+    pub total_entities: usize,
+    pub unscoped_entities: usize,
+    pub missing_owner: usize,
+    pub invalid_floor_refs: usize,
+    pub pending_changes: usize,
+    pub conflicts: usize,
+    pub open_issues: usize,
+}
+
+impl ModelHealth {
+    pub fn is_clean(&self) -> bool {
+        self.unscoped_entities == 0
+            && self.missing_owner == 0
+            && self.invalid_floor_refs == 0
+            && self.pending_changes == 0
+            && self.conflicts == 0
+            && self.open_issues == 0
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObjectSyncState {
     Clean,
@@ -666,6 +688,30 @@ impl State {
             }
         }
         self.work_session_known_handles = current_handles;
+    }
+
+    fn model_health(&self, app: &cadcraft_ui_egui::CadApp) -> ModelHealth {
+        let mut health = ModelHealth::default();
+        if let Ok(doc) = app.session.doc() {
+            for entity in doc.model.iter() {
+                health.total_entities += 1;
+                match bim_meta(&entity.common) {
+                    None => health.unscoped_entities += 1,
+                    Some(meta) => {
+                        if meta.owner_account_id.trim().is_empty() {
+                            health.missing_owner += 1;
+                        }
+                        if !self.floors.iter().any(|f| f.id == meta.floor_id) {
+                            health.invalid_floor_refs += 1;
+                        }
+                    }
+                }
+            }
+        }
+        health.pending_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
+        health.conflicts = self.conflicts.len();
+        health.open_issues = self.issues.iter().filter(|i| i.status != IssueStatus::Resolved).count();
+        health
     }
 
     fn object_sync_state(&self, handle: cadcraft_doc::Handle) -> ObjectSyncState {
@@ -1265,6 +1311,27 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     ui.heading("BIM Cộng tác");
     ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
 
+    {
+        let health = state.model_health(app);
+        ui.group(|ui| {
+            ui.strong("Model Health");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Entity: {}", health.total_entities));
+                ui.label(format!("Chưa gắn BIM: {}", health.unscoped_entities));
+                ui.label(format!("Thiếu owner: {}", health.missing_owner));
+                ui.label(format!("Sai tầng: {}", health.invalid_floor_refs));
+                ui.label(format!("Pending: {}", health.pending_changes));
+                ui.label(format!("Conflict: {}", health.conflicts));
+                ui.label(format!("Issue mở: {}", health.open_issues));
+                if health.is_clean() {
+                    ui.colored_label(egui::Color32::LIGHT_GREEN, "Model sạch");
+                } else {
+                    ui.colored_label(egui::Color32::YELLOW, "Cần xử lý trước khi publish");
+                }
+            });
+        });
+    }
+
     ui.group(|ui| {
         ui.strong("Dự án BIM");
         ui.horizontal(|ui| {
@@ -1796,6 +1863,17 @@ mod tests {
         assert!(!state.work_session_active);
         assert_eq!(state.active_floor_id, 1);
         assert_eq!(state.active_discipline, Discipline::Architecture);
+    }
+
+    #[test]
+    fn model_health_reports_non_clean_state_when_pending_or_issue_exists() {
+        let mut health = ModelHealth::default();
+        assert!(health.is_clean());
+        health.pending_changes = 1;
+        assert!(!health.is_clean());
+        health.pending_changes = 0;
+        health.open_issues = 1;
+        assert!(!health.is_clean());
     }
 
     #[test]

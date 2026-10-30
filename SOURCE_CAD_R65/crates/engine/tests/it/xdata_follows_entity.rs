@@ -401,6 +401,72 @@ fn block_insert_with_mixed_scopes_is_unscoped() {
 }
 
 #[test]
+fn reverse_and_flatten_bump_bim_revision_in_place() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0,2],[10,0,2]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",1);
+    s.execute("reverse",&json!({"handles":[h.hex()]})).unwrap();
+    assert!(bim_payload(&s,h).contains("revision=2"));
+    s.execute("flatten",&json!({"handles":[h.hex()]})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=3"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn blend_same_scope_gets_new_bim_identity() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[10,5],[10,10]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,2,"ELEC","u1",1);
+    add_bim(&mut s,b,2,"ELEC","u1",2);
+    let r=s.execute("blend",&json!({"h1":a.hex(),"p1":[5,0],"h2":b.hex(),"p2":[10,5]})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("floor=2"));
+    assert!(p.contains("discipline=ELEC"));
+    assert!(p.contains("owner=u1"));
+    assert!(p.contains("revision=1"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn blend_mixed_scopes_is_unscoped() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[5,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[10,5],[10,10]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,2,"STRUCT","u2",1);
+    let r=s.execute("blend",&json!({"h1":a.hex(),"p1":[5,0],"h2":b.hex(),"p2":[10,5]})).unwrap();
+    let h=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let e=s.doc().unwrap().entity(h).unwrap();
+    assert!(!e.common.xdata.iter().any(|t|t.code==1001&&t.value=="TBT360_BIM"));
+}
+
+#[test]
+fn overkill_keeps_distinct_bim_identities_separate() {
+    let mut s=Session::new();
+    let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let b=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,a,1,"ARCH","u1",1);
+    add_bim(&mut s,b,1,"ARCH","u1",1);
+    s.execute("overkill",&json!({"handles":[a.hex(),b.hex()]})).unwrap();
+    assert!(s.doc().unwrap().entity(a).is_some());
+    assert!(s.doc().unwrap().entity(b).is_some());
+}
+
+#[test]
+fn splinedit_keeps_identity_and_bumps_revision() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("spline",&json!({"fit":[[0,0],[5,2],[10,0]]})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,3,"ARCH","u1",2);
+    s.execute("splinedit",&json!({"handle":h.hex(),"option":"reverse"})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=3"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
 fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
     let mut s=Session::new();
     let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

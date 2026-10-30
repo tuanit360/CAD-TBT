@@ -313,7 +313,7 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     assert!(clipboard::load_system_text(&mut b,&text));
     b.execute("pasteclip",&json!({"at":[0,0]})).unwrap();
 
-    let pasted=b.doc().unwrap().model.first().unwrap();
+    let pasted=b.doc().unwrap().model.iter().next().unwrap();
     assert_ne!(pasted.handle,old);
     let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
     let payload=&pasted.common.xdata[at+1].value;

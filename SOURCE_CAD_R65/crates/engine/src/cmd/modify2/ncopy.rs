@@ -41,9 +41,11 @@ fn place_copies(s: &mut Session, items: &[(Common, EntityKind)], delta: Vec2) ->
     let m = Mat3::translate(delta);
     let mut out = Vec::new();
     for (c, k) in items {
-        let mut k = k.clone();
+        let mut k=k.clone();
         k.transform(&m);
-        out.push(push_entity(s, &space, c.clone(), k)?);
+        let h=push_entity(s,&space,c.clone(),k)?;
+        s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,h))?;
+        out.push(h);
     }
     Ok(out)
 }

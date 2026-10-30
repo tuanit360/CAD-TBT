@@ -175,6 +175,17 @@ impl IssueStatus {
 }
 
 #[derive(Clone, Debug)]
+pub struct AuditEntry {
+    pub sequence: u64,
+    pub account_id: String,
+    pub action: String,
+    pub floor_id: Option<u64>,
+    pub discipline: Option<Discipline>,
+    pub handle: Option<cadcraft_doc::Handle>,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct CoordinationCandidate {
     pub floor_id: u64,
     pub a: cadcraft_doc::Handle,
@@ -436,6 +447,8 @@ pub struct State {
     pub progress: Vec<ScopeProgress>,
     pub issues: Vec<CoordinationIssue>,
     pub coordination_candidates: Vec<CoordinationCandidate>,
+    pub audit_log: Vec<AuditEntry>,
+    next_audit_sequence: u64,
     next_issue_id: u64,
     pub project_id: String,
     pub project_name: String,
@@ -504,6 +517,8 @@ impl Default for State {
             ],
             issues: Vec::new(),
             coordination_candidates: Vec::new(),
+            audit_log: Vec::new(),
+            next_audit_sequence: 1,
             next_issue_id: 1,
             project_id: "project-local-001".into(),
             project_name: "Dự án BIM".into(),
@@ -630,6 +645,24 @@ impl State {
         }
     }
 
+    fn audit(&mut self, action: impl Into<String>, floor_id: Option<u64>, discipline: Option<Discipline>, handle: Option<cadcraft_doc::Handle>, detail: impl Into<String>) {
+        let entry = AuditEntry {
+            sequence: self.next_audit_sequence,
+            account_id: self.current_account_id.clone(),
+            action: action.into(),
+            floor_id,
+            discipline,
+            handle,
+            detail: detail.into(),
+        };
+        self.next_audit_sequence += 1;
+        self.audit_log.push(entry);
+        if self.audit_log.len() > 5000 {
+            let remove = self.audit_log.len() - 5000;
+            self.audit_log.drain(0..remove);
+        }
+    }
+
     fn ensure_progress_scope(&mut self, floor_id: u64, discipline: Discipline) {
         if self.progress.iter().any(|p| p.floor_id == floor_id && p.discipline == discipline) {
             return;
@@ -654,7 +687,9 @@ impl State {
             description: "Kiểm tra phối hợp tại vị trí/đối tượng được chọn".into(),
             status: IssueStatus::Open,
         });
+        let issue_id = self.next_issue_id;
         self.next_issue_id += 1;
+        self.audit("COORDINATION_ISSUE_CREATED", Some(self.active_floor_id), Some(self.active_discipline), handle, format!("Issue {} -> {}", issue_id, target_discipline.label()));
     }
 
     fn queue_update(&mut self, handle: cadcraft_doc::Handle, base_revision: u64, local_revision: u64) {
@@ -667,6 +702,7 @@ impl State {
         self.next_change_set_id += 1;
         self.pending_changes.push(change);
         self.dirty_local_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
+        self.audit("ENTITY_UPDATE_QUEUED", Some(self.active_floor_id), Some(self.active_discipline), Some(handle), format!("Revision {} -> {}", base_revision, local_revision));
     }
 
     fn remote_revision(&self, handle: cadcraft_doc::Handle) -> u64 {
@@ -1444,6 +1480,25 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         });
     });
 
+    ui.collapsing("Nhật ký thay đổi / Audit", |ui| {
+        ui.label(format!("Số sự kiện đang giữ: {}", state.audit_log.len()));
+        egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+            egui::Grid::new("bim_audit_log").striped(true).show(ui, |ui| {
+                ui.strong("#"); ui.strong("Tài khoản"); ui.strong("Hành động"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Đối tượng"); ui.strong("Chi tiết"); ui.end_row();
+                for e in state.audit_log.iter().rev().take(300) {
+                    ui.label(e.sequence.to_string());
+                    ui.label(&e.account_id);
+                    ui.label(&e.action);
+                    ui.label(e.floor_id.and_then(|id| state.floors.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_else(|| "-".into()));
+                    ui.label(e.discipline.map(Discipline::label).unwrap_or("-"));
+                    ui.label(e.handle.map(|h| h.hex()).unwrap_or_else(|| "-".into()));
+                    ui.label(&e.detail);
+                    ui.end_row();
+                }
+            });
+        });
+    });
+
     ui.collapsing("Chia sẻ thiết kế: ai được xem của ai", |ui| {
         egui::Grid::new("bim_share_grants").striped(true).show(ui, |ui| {
             ui.strong("Người xem"); ui.strong("Chủ dữ liệu"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
@@ -1625,6 +1680,16 @@ mod tests {
         };
         assert_eq!(c.floor_id, 3);
         assert_ne!(c.discipline_a, c.discipline_b);
+    }
+
+    #[test]
+    fn audit_log_records_entity_and_issue_events() {
+        let mut state = State::default();
+        state.queue_update(cadcraft_doc::Handle(1), 0, 1);
+        state.create_issue_from_selection(Some(cadcraft_doc::Handle(1)), Discipline::Structure);
+        assert_eq!(state.audit_log.len(), 2);
+        assert_eq!(state.audit_log[0].action, "ENTITY_UPDATE_QUEUED");
+        assert_eq!(state.audit_log[1].action, "COORDINATION_ISSUE_CREATED");
     }
 
     #[test]

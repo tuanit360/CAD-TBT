@@ -71,8 +71,9 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let layer = str_param(p, "layer").map(str::to_string);
     let color = p.get("color").map(|v| serde_json::from_value(v.clone()).map_err(|_| bad("attedit", "invalid `color`"))).transpose()?;
     let mut n = 0;
-    s.doc_mut()?.modify_entity(h, |e| {
-        if let EntityKind::Insert(i) = &mut e.kind {
+    s.doc_mut()?.modify_entity(h,|e|{
+        let before=n;
+        if let EntityKind::Insert(i)=&mut e.kind {
             for a in &mut i.attribs {
                 if let Some(v) = value_for(&vals, &a.tag) {
                     a.text.value = v;
@@ -86,9 +87,10 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
                 if let Some(v) = angle { a.text.rotation = v; n += 1; }
                 if let Some(v) = &style { a.text.style = v.clone(); n += 1; }
                 if let Some(v) = &layer { a.props.layer = Some(v.clone()); n += 1; }
-                if let Some(v) = color.clone() { a.props.color = Some(v); n += 1; }
+                if let Some(v)=color.clone() { a.props.color=Some(v); n+=1; }
             }
         }
+        if n>before { crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h); }
     })?;
     Ok(with_unknown_tags(s, h, &vals, json!({ "changed": n })))
 }
@@ -147,8 +149,9 @@ fn edit(s: &mut Session, (h, k): (Handle, usize), f: impl FnOnce(&str) -> Option
             && let Some(a) = ins.attribs.get_mut(k)
             && let Some(v) = f(&a.text.value).filter(|v| *v != a.text.value)
         {
-            a.text.value = v;
-            changed = true;
+            a.text.value=v;
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
+            changed=true;
         }
     })?;
     Ok(changed)
@@ -161,6 +164,7 @@ fn set_props(s: &mut Session, (h, k): (Handle, usize), f: impl FnOnce(&mut Attri
             && let Some(a) = ins.attribs.get_mut(k)
         {
             f(&mut a.props);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
         }
     })?;
     Ok(())

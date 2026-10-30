@@ -1402,7 +1402,7 @@ mod tests {
         let mut d=cadcraft_doc::Drawing::new_metric();
         let member=cadcraft_doc::Handle(0x20);
         let mut source=cadcraft_doc::Block::new("SRC");
-        source.entities.push(cadcraft_doc::Entity{handle:member,common:Default::default(),kind:cadcraft_doc::EntityKind::Point(cadcraft_doc::Point{p:cadcraft_geom::Vec3::ZERO})});
+        source.entities.push(cadcraft_doc::Entity{handle:member,common:Default::default(),kind:cadcraft_doc::EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(1.0,0.0,0.0)})});
         d.blocks.insert("SRC".into(),std::sync::Arc::new(source));
         let params=ArrayParams{
             source:"SRC".into(),

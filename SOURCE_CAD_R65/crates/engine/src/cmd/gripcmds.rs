@@ -73,7 +73,10 @@ fn stretch(s: &mut Session, cmd: &str, p: &Value) -> Result<Value> {
             let st = d.dim_style(&dm.style).cloned().unwrap_or_default().with_overrides(&dm.overrides);
             st.follow_text(dm, d.header.f64("DIMSCALE", 1.0));
         }
-        d.modify_entity(*o, |e| e.kind = k.clone())?;
+        d.modify_entity(*o,|e|{
+            e.kind=k.clone();
+            super::modify::bump_tbt360_bim_revision(&mut e.common,*o);
+        })?;
     }
     Ok(json!({ "handle": h.hex(), "handles": edits.iter().map(|(o, _)| o.hex()).collect::<Vec<_>>() }))
 }
@@ -146,7 +149,10 @@ fn run_grip_option(s: &mut Session, p: &Value) -> Result<Value> {
     let value = p.get("value").and_then(Value::as_f64);
     let k = grip_action(&e.kind, i, action, point_param(p, "to"), value)
         .ok_or_else(|| bad(cmd, "that option doesn't apply to this grip, or the result would be degenerate"))?;
-    s.doc_mut()?.modify_entity(h, |e| e.kind = k)?;
+    s.doc_mut()?.modify_entity(h,|e|{
+        e.kind=k;
+        super::modify::bump_tbt360_bim_revision(&mut e.common,h);
+    })?;
     Ok(json!({ "handle": h.hex() }))
 }
 

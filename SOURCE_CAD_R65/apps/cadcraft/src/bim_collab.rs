@@ -1010,24 +1010,35 @@ impl State {
     }
 
     fn load_snapshot_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
-        self.project_id = value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or("project-local-001").to_string();
-        self.project_name = value.get("project_name").and_then(serde_json::Value::as_str).unwrap_or("Dự án BIM").to_string();
+        if value.get("version").and_then(serde_json::Value::as_u64) != Some(2) { return Err("Phiên bản BIM workspace không được hỗ trợ".into()); }
+        self.project_id = value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or("project-local-001").trim().to_string();
+        if self.project_id.is_empty() { return Err("BIM workspace thiếu project_id".into()); }
+        self.project_name = value.get("project_name").and_then(serde_json::Value::as_str).unwrap_or("Dự án BIM").trim().to_string();
         if let Some(c) = value.get("coordinates") {
-            self.coordinates.origin_x_m = c.get("origin_x_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
-            self.coordinates.origin_y_m = c.get("origin_y_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
-            self.coordinates.origin_z_m = c.get("origin_z_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
-            self.coordinates.rotation_deg = c.get("rotation_deg").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            let ox=c.get("origin_x_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            let oy=c.get("origin_y_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            let oz=c.get("origin_z_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            let rot=c.get("rotation_deg").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            if ![ox,oy,oz,rot].into_iter().all(f64::is_finite) { return Err("Shared coordinates không hợp lệ".into()); }
+            self.coordinates.origin_x_m=ox;
+            self.coordinates.origin_y_m=oy;
+            self.coordinates.origin_z_m=oz;
+            self.coordinates.rotation_deg=rot;
         }
         if let Some(items) = value.get("floors").and_then(serde_json::Value::as_array) {
             let mut floors = Vec::new();
+            let mut floor_ids = std::collections::BTreeSet::new();
             for item in items {
                 let id = item.get("id").and_then(serde_json::Value::as_u64).ok_or_else(|| "Floor thiếu id".to_string())?;
-                let name = item.get("name").and_then(serde_json::Value::as_str).unwrap_or("Tầng").to_string();
+                if id==0 || !floor_ids.insert(id) { return Err("Floor id không hợp lệ hoặc bị trùng".into()); }
+                let name = item.get("name").and_then(serde_json::Value::as_str).unwrap_or("Tầng").trim().to_string();
                 let elevation_m = item.get("elevation_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
                 let height_m = item.get("height_m").and_then(serde_json::Value::as_f64).unwrap_or(3.6);
+                if name.is_empty() || !elevation_m.is_finite() || !height_m.is_finite() || height_m<=0.0 { return Err("Floor không hợp lệ".into()); }
                 floors.push(Floor { id, name, elevation_m, height_m });
             }
-            if !floors.is_empty() { self.floors = floors; }
+            if floors.is_empty() { return Err("BIM workspace phải có ít nhất một tầng".into()); }
+            self.floors = floors;
         }
         self.layout = match value.get("layout").and_then(serde_json::Value::as_u64).unwrap_or(2) {
             1 => ViewLayout::One,
@@ -1039,6 +1050,7 @@ impl State {
             let mut views = Vec::new();
             for item in items.iter().take(4) {
                 let floor_id = item.get("floor_id").and_then(serde_json::Value::as_u64).unwrap_or(1);
+                if !self.floors.iter().any(|f|f.id==floor_id) { return Err("View tham chiếu tầng không tồn tại".into()); }
                 let discipline = item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label).unwrap_or(Discipline::Architecture);
                 let owner_account_id = item.get("owner_account_id").and_then(serde_json::Value::as_str).map(str::to_string);
                 let overlay_opacity = item.get("overlay_opacity").and_then(serde_json::Value::as_f64).unwrap_or(0.35).clamp(0.05, 1.0) as f32;
@@ -1107,6 +1119,7 @@ impl State {
             }).collect();
         }
         self.active_floor_id = value.get("active_floor_id").and_then(serde_json::Value::as_u64).unwrap_or_else(|| self.floors.first().map(|f| f.id).unwrap_or(1));
+        if !self.floors.iter().any(|f|f.id==self.active_floor_id) { return Err("active_floor_id không tồn tại".into()); }
         self.active_discipline = value.get("active_discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label).unwrap_or(Discipline::Architecture);
         if let Some(items) = value.get("progress").and_then(serde_json::Value::as_array) {
             self.progress = items.iter().filter_map(|item| {

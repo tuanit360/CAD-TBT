@@ -7,6 +7,22 @@ use cadcraft_doc::EntityKind;
 use cadcraft_ui_egui::CadApp;
 
 #[derive(Default)]
+pub struct State {
+    drawing_distance: f64,
+    real_distance_m: f64,
+}
+
+impl State {
+    fn scale_to_m(&self) -> Option<f64> {
+        if self.drawing_distance.is_finite() && self.real_distance_m.is_finite() && self.drawing_distance > 1e-12 && self.real_distance_m > 0.0 {
+            Some(self.real_distance_m / self.drawing_distance)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Default)]
 struct Quantity {
     count: usize,
     line_length: f64,
@@ -161,46 +177,71 @@ fn quantities(app: &CadApp) -> BTreeMap<String, Quantity> {
     groups
 }
 
-fn draw_contents(ui: &mut egui::Ui, app: &CadApp) {
+fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
     let groups = quantities(app);
     ui.heading("Đo bóc khối lượng — CAD native");
     ui.label("Số liệu trực tiếp từ bản vẽ CAD đang mở; thay đổi ngay sau khi vẽ, sửa, Undo hoặc Redo.");
-    ui.colored_label(egui::Color32::YELLOW,
-        "Đơn vị theo bản vẽ. Chỉ số đo CAD native; chưa tự quy đổi sang m/m² nếu bản vẽ chưa có đơn vị chuẩn và chưa tính IFC/PDF/Solid.");
+    ui.separator();
+
+    ui.group(|ui| {
+        ui.strong("Hiệu chỉnh tỷ lệ");
+        ui.horizontal(|ui| {
+            ui.label("Khoảng cách trên bản vẽ:");
+            ui.add(egui::DragValue::new(&mut state.drawing_distance).speed(0.1).range(0.0..=f64::MAX));
+            ui.label("Chiều dài thực (m):");
+            ui.add(egui::DragValue::new(&mut state.real_distance_m).speed(0.1).range(0.0..=f64::MAX));
+        });
+        match state.scale_to_m() {
+            Some(scale) => {
+                ui.label(format!("Tỷ lệ quy đổi: 1 đơn vị bản vẽ = {:.8} m", scale));
+            }
+            None => {
+                ui.colored_label(egui::Color32::YELLOW, "Chưa hiệu chỉnh tỷ lệ. Kết quả đang hiển thị theo đơn vị bản vẽ.");
+            }
+        }
+    });
+
+    let scale = state.scale_to_m();
+    let length_unit = if scale.is_some() { "m" } else { "đv" };
+    let area_unit = if scale.is_some() { "m²" } else { "đv²" };
+    let lf = scale.unwrap_or(1.0);
+    let af = lf * lf;
+
     ui.separator();
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("native_qto_table").striped(true).min_col_width(105.0).show(ui, |ui| {
-            for heading in ["Layer", "Số đối tượng", "LINE dài", "ARC dài", "PLINE dài", "PLINE kín diện tích", "CIRCLE diện tích", "Khác/chưa đo"] {
+            for heading in ["Layer", "Số đối tượng", "LINE", "ARC", "PLINE", "PLINE kín", "CIRCLE", "Khác/chưa đo"] {
                 ui.strong(heading);
             }
             ui.end_row();
             for (layer, q) in &groups {
                 ui.label(layer);
                 ui.label(q.count.to_string());
-                ui.label(format!("{:.3}", q.line_length));
-                ui.label(format!("{:.3}", q.arc_length));
-                ui.label(format!("{:.3}", q.polyline_length));
-                ui.label(format!("{:.3}", q.closed_area));
-                ui.label(format!("{:.3}", q.circle_area));
+                ui.label(format!("{:.3} {}", q.line_length * lf, length_unit));
+                ui.label(format!("{:.3} {}", q.arc_length * lf, length_unit));
+                ui.label(format!("{:.3} {}", q.polyline_length * lf, length_unit));
+                ui.label(format!("{:.3} {}", q.closed_area * af, area_unit));
+                ui.label(format!("{:.3} {}", q.circle_area * af, area_unit));
                 ui.label(q.unsupported.to_string());
                 ui.end_row();
             }
         });
     });
+
     ui.separator();
     if ui.button("Sao chép bảng CSV").clicked() {
-        let mut csv = String::from("layer,entity_count,line_length_units,arc_length_units,polyline_length_units,closed_polyline_area_units2,circle_area_units2,unmeasured_count\n");
+        let mut csv = String::from("layer,entity_count,line_length,arc_length,polyline_length,closed_polyline_area,circle_area,unmeasured_count,length_unit,area_unit\n");
         for (layer, q) in &groups {
             let safe = format!("\"{}\"", layer.replace('"', "\"\""));
-            csv.push_str(&format!("{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{}\n",
-                safe, q.count, q.line_length, q.arc_length, q.polyline_length, q.closed_area, q.circle_area, q.unsupported));
+            csv.push_str(&format!("{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{},{},{}\n",
+                safe, q.count, q.line_length * lf, q.arc_length * lf, q.polyline_length * lf, q.closed_area * af, q.circle_area * af, q.unsupported, length_unit, area_unit));
         }
         ui.ctx().copy_text(csv);
     }
 }
 
-pub fn panel(ui: &mut egui::Ui, app: &CadApp) {
-    draw_contents(ui, app);
+pub fn panel(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
+    draw_contents(ui, app, state);
 }
 
 #[cfg(test)]
@@ -208,6 +249,22 @@ mod tests {
     use super::*;
     use cadcraft_doc::geom::PolyVertex;
     use cadcraft_doc::geom::Vec2;
+
+    #[test]
+    fn calibration_scale_converts_length_and_area() {
+        let state = State { drawing_distance: 1000.0, real_distance_m: 1.0 };
+        let scale = state.scale_to_m().unwrap();
+        assert!((scale - 0.001).abs() < 1e-12);
+        assert!((2500.0 * scale - 2.5).abs() < 1e-12);
+        assert!((1_000_000.0 * scale * scale - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn invalid_calibration_is_rejected() {
+        assert!(State::default().scale_to_m().is_none());
+        assert!(State { drawing_distance: 0.0, real_distance_m: 1.0 }.scale_to_m().is_none());
+        assert!(State { drawing_distance: 1.0, real_distance_m: 0.0 }.scale_to_m().is_none());
+    }
 
     #[test]
     fn open_polyline_has_no_area() {

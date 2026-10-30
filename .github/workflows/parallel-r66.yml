@@ -10,7 +10,7 @@ on:
   push:
     branches:
       - 'fix/r66-parallel-ci-6-lanes'
-      - 'integration/cad360-unified-r66'
+      - 'fix/r66-clean-installer-ci'
     paths:
       - 'SOURCE_CAD_R65/**'
       - '.github/workflows/parallel-r66.yml'
@@ -155,4 +155,41 @@ jobs:
         with:
           name: CAD360_VietNam_TBT_Portable_Win64
           path: portable/CAD360_VietNam_TBT_Portable_Win64.zip
+          if-no-files-found: error
+      - name: Prepare release binaries for Windows installer
+        shell: pwsh
+        working-directory: .
+        run: |
+          $src = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $dst = "SOURCE_CAD_R65/target/release"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          foreach ($name in @("cadcraft.exe", "cadcraft-cli.exe")) {
+            if (!(Test-Path "$src/$name")) { throw "Missing release binary: $src/$name" }
+            Copy-Item "$src/$name" "$dst/$name" -Force
+          }
+      - name: Install Inno Setup 6
+        shell: pwsh
+        working-directory: .
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup install failed" }
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+      - name: Build CAD360 Windows Setup EXE
+        shell: pwsh
+        working-directory: .
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          & $iscc "/Qp" "installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
+          $setup = "dist/CAD360_VietNam_TBT_Setup.exe"
+          if (!(Test-Path $setup) -or (Get-Item $setup).Length -lt 100000) { throw "Windows Setup EXE missing or invalid" }
+          Get-FileHash $setup -Algorithm SHA256 | Format-List
+      - name: Upload Windows Setup EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Windows_Setup
+          path: dist/CAD360_VietNam_TBT_Setup.exe
           if-no-files-found: error

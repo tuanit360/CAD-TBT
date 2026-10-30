@@ -1,0 +1,47 @@
+name: CAD360 Unified Integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'integration/cad360-unified-r66'
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - 'backend/**'
+      - '.github/workflows/unified-integration.yml'
+
+concurrency:
+  group: cad360-unified-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unified:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Verify locked dependency graph
+        run: cargo metadata --locked --no-deps --format-version 1 > $null
+      - name: Check full workspace
+        run: cargo check --workspace --locked
+      - name: Test full workspace
+        run: cargo test --workspace --locked
+      - name: Test native QTO
+        run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+      - name: Upload unified source snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_UNIFIED_SOURCE_${{ github.sha }}
+          path: |
+            SOURCE_CAD_R65
+            backend
+            BIM_*.md
+          if-no-files-found: error
+          retention-days: 30

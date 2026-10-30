@@ -40,6 +40,23 @@ pub struct PresenceRegistry {
 }
 
 impl PresenceRegistry {
+    pub fn active_users(&self,now_ms:u64,timeout_ms:u64)->Vec<&PresenceState>{
+        self.users.iter().filter(|p|p.active_at(now_ms,timeout_ms)).collect()
+    }
+
+    pub fn renew(&mut self,object_id:&str,account_id:&str,device_id:&str,new_expires_ms:u64)->bool{
+        let Some(lease)=self.leases.iter_mut().find(|l|l.object_id==object_id) else{return false};
+        if !lease.can_renew(account_id,device_id){return false;}
+        lease.expires_ms=new_expires_ms;
+        true
+    }
+
+    pub fn release(&mut self,object_id:&str,account_id:&str,device_id:&str)->bool{
+        let before=self.leases.len();
+        self.leases.retain(|l|!(l.object_id==object_id && l.account_id==account_id && l.device_id==device_id));
+        self.leases.len()!=before
+    }
+
     pub fn heartbeat(&mut self, p:PresenceState){
         if let Some(existing)=self.users.iter_mut().find(|x|x.account_id==p.account_id&&x.device_id==p.device_id){*existing=p;}else{self.users.push(p);}
     }
@@ -57,6 +74,16 @@ impl PresenceRegistry {
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn only_lease_owner_can_renew_or_release() {
+        let mut r=PresenceRegistry::default();
+        assert!(r.acquire(Lease{object_id:"A".into(),account_id:"u1".into(),device_id:"d1".into(),acquired_revision:1,expires_ms:200},100));
+        assert!(!r.renew("A","u2","d2",300));
+        assert!(r.renew("A","u1","d1",300));
+        assert!(!r.release("A","u2","d2"));
+        assert!(r.release("A","u1","d1"));
+    }
+
     #[test]
     fn presence_expires_and_abandoned_lease_can_be_reacquired(){
         let mut r=PresenceRegistry::default();

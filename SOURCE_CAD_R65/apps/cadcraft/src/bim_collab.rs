@@ -235,6 +235,37 @@ pub struct ChangeSet {
     pub synced: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncConflict {
+    pub handle: cadcraft_doc::Handle,
+    pub base_revision: u64,
+    pub local_revision: u64,
+    pub remote_revision: u64,
+}
+
+fn detect_conflict(item: &ChangeItem, remote_revision: u64) -> Option<SyncConflict> {
+    if remote_revision == item.base_revision {
+        None
+    } else {
+        Some(SyncConflict {
+            handle: item.handle,
+            base_revision: item.base_revision,
+            local_revision: item.local_revision,
+            remote_revision,
+        })
+    }
+}
+
+fn slot_matches(meta: &BimEntityMeta, slot: &ViewSlot) -> bool {
+    if meta.floor_id != slot.floor_id || meta.discipline != slot.discipline {
+        return false;
+    }
+    match &slot.owner_account_id {
+        Some(owner) => &meta.owner_account_id == owner,
+        None => true,
+    }
+}
+
 pub struct State {
     pub connection: ConnectionMode,
     pub layout: ViewLayout,
@@ -317,6 +348,17 @@ impl State {
         }
         (me.can_view_other_disciplines || target.discipline == me.discipline)
             && (target_floor == active_floor || me.can_view_other_floors)
+    }
+
+    fn viewport_entity_count(&self, app: &cadcraft_ui_egui::CadApp, slot: &ViewSlot) -> usize {
+        let Ok(doc) = app.session.doc() else { return 0 };
+        doc.model.iter().filter(|entity| {
+            let Some(meta) = bim_meta(&entity.common) else { return false };
+            if !slot_matches(&meta, slot) { return false; }
+            let Some(target) = self.users.iter().find(|u| u.account_id == meta.owner_account_id) else { return false };
+            if !slot.show_other_users && meta.owner_account_id != self.current_account_id { return false; }
+            self.can_view(target, meta.floor_id, self.active_floor_id)
+        }).count()
     }
 
     pub fn world_position(&self, floor_id: u64, local_x_m: f64, local_y_m: f64, local_z_m: f64) -> Option<[f64; 3]> {
@@ -406,6 +448,9 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         if state.connection == ConnectionMode::Online && state.dirty_local_changes > 0 && ui.button("Đánh dấu đã đồng bộ (mô phỏng server)").clicked() {
             state.mark_all_synced();
         }
+        if !state.pending_changes.is_empty() {
+            ui.label(format!("ChangeSet local: {} | thay đổi chưa đồng bộ: {}", state.pending_changes.len(), state.dirty_local_changes));
+        }
     });
 
     ui.separator();
@@ -467,6 +512,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     });
                 ui.checkbox(&mut slot.show_other_users, "Hiển thị thiết kế của người khác");
                 ui.add(egui::Slider::new(&mut slot.overlay_opacity, 0.05..=1.0).text("Độ đậm overlay"));
+                let visible_count = state.viewport_entity_count(app, slot);
+                ui.label(format!("Đối tượng phù hợp bộ lọc: {}", visible_count));
                 ui.label(if i == 0 { "Viewport làm việc chính" } else { "Viewport phối hợp/xem trực tiếp" });
             });
             if slots > 1 && i % 2 == 1 { ui.end_row(); }
@@ -497,6 +544,28 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewport_filter_matches_floor_discipline_and_optional_owner() {
+        let meta = BimEntityMeta { floor_id: 2, discipline: Discipline::Structure, owner_account_id: "struct-01".into(), revision: 1 };
+        let mut slot = ViewSlot { floor_id: 2, discipline: Discipline::Structure, owner_account_id: None, overlay_opacity: 0.3, show_other_users: true };
+        assert!(slot_matches(&meta, &slot));
+        slot.floor_id = 1;
+        assert!(!slot_matches(&meta, &slot));
+        slot.floor_id = 2;
+        slot.owner_account_id = Some("other".into());
+        assert!(!slot_matches(&meta, &slot));
+    }
+
+    #[test]
+    fn revision_mismatch_creates_sync_conflict() {
+        let item = ChangeItem { handle: cadcraft_doc::Handle(42), operation: ChangeOperation::Update, base_revision: 4, local_revision: 5 };
+        assert!(detect_conflict(&item, 4).is_none());
+        let conflict = detect_conflict(&item, 6).unwrap();
+        assert_eq!(conflict.base_revision, 4);
+        assert_eq!(conflict.local_revision, 5);
+        assert_eq!(conflict.remote_revision, 6);
+    }
 
     #[test]
     fn bim_metadata_roundtrips_through_entity_xdata() {

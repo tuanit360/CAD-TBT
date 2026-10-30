@@ -25,6 +25,7 @@ mod spacemouse;
 mod system_animations;
 mod workspace;
 mod takeoff;
+mod bim_collab;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};
@@ -36,12 +37,14 @@ enum MainTab {
     Takeoff,
     Pdf,
     Model3d,
+    BimCollab,
 }
 
 struct App {
     cad: CadApp,
     active_tab: MainTab,
     takeoff_state: takeoff::State,
+    bim_collab_state: bim_collab::State,
     spacemouse: spacemouse::SpaceMouse,
     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
     desktop_theme: desktop_theme::DesktopTheme,
@@ -127,6 +130,7 @@ impl eframe::App for App {
             ui.selectable_value(&mut self.active_tab, MainTab::Takeoff, "ĐO BÓC");
             ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
+            ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
         });
         ui.separator();
         match self.active_tab {
@@ -140,6 +144,7 @@ impl eframe::App for App {
                 ui.heading("3D / IFC");
                 ui.label("Khu vực tích hợp IFC/Solid/Volume và đối chiếu khối lượng 2D/3D. Chưa được đánh dấu hoàn thành.");
             }
+            MainTab::BimCollab => bim_collab::panel(ui, &mut self.bim_collab_state),
         }
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
@@ -442,6 +447,7 @@ fn main() -> eframe::Result {
                 cad: app,
                 active_tab: MainTab::default(),
                 takeoff_state: takeoff::State::default(),
+                bim_collab_state: bim_collab::State::default(),
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,

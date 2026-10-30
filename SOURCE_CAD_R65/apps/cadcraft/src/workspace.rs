@@ -216,7 +216,7 @@ mod tests {
         }
         assert_eq!(
             config_dir_from("linux", |key| (key == "XDG_CONFIG_HOME").then(|| OsString::from("/config"))),
-            Some(PathBuf::from("/config/cadcraft"))
+            Some(PathBuf::from("/config/tbt360"))
         );
         assert_eq!(config_dir_from("macos", |_| None), None);
     }

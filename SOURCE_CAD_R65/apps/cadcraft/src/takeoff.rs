@@ -30,6 +30,18 @@ impl MeasureStatus {
     }
 }
 
+fn normalize_discipline(value:&str)->Option<String> {
+    match value.trim() {
+        "ARCH" | "Kiến trúc" => Some("ARCH".into()),
+        "STRUCT" | "Kết cấu" => Some("STRUCT".into()),
+        "ELEC" | "Điện" => Some("ELEC".into()),
+        "PLUMB" | "Nước" => Some("PLUMB".into()),
+        "HVAC" | "Điều hòa/Thông gió" => Some("HVAC".into()),
+        "COORD" | "Phối hợp" => Some("COORD".into()),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Scope {
     pub floor_id: Option<u64>,
@@ -143,10 +155,11 @@ impl State {
 
     fn add_measurement_from_entity(&mut self, measurement: PendingMeasurement, scope: &Scope) -> Result<u64, String> {
         let id=self.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,scope)?;
+        let source_handle=measurement.source_handle.hex();
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
-            record.source_handle=Some(measurement.source_handle.hex());
+            record.source_handle=Some(source_handle.clone());
         }
-        self.audit_change(id,"SOURCE_HANDLE",None,self.records.iter().find(|r|r.id==id).and_then(|r|r.source_handle.clone()));
+        self.audit_change(id,"SOURCE_HANDLE",None,Some(source_handle));
         Ok(id)
     }
 
@@ -230,6 +243,8 @@ impl State {
     }
 
     fn load_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
+        let version=value.get("version").and_then(serde_json::Value::as_u64).unwrap_or(2);
+        if !matches!(version,2|3) { return Err("Phiên bản QTO project không được hỗ trợ".into()); }
         let drawing_distance = value.get("drawing_distance").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu drawing_distance".to_string())?;
         let real_distance_m = value.get("real_distance_m").and_then(serde_json::Value::as_f64).ok_or_else(|| "Thiếu real_distance_m".to_string())?;
         if !(drawing_distance.is_finite() && real_distance_m.is_finite()) {
@@ -263,12 +278,16 @@ impl State {
             if kind != MeasureKind::Count && points.is_empty() { return Err("Measurement thiếu hình học".into()); }
             let scope_value=item.get("scope");
             let floor_id=scope_value.and_then(|v|v.get("floor_id")).and_then(serde_json::Value::as_u64);
-            let discipline=scope_value.and_then(|v|v.get("discipline")).and_then(serde_json::Value::as_str).map(str::to_string);
+            let discipline=match scope_value.and_then(|v|v.get("discipline")).and_then(serde_json::Value::as_str) {
+                Some(value)=>Some(normalize_discipline(value).ok_or_else(||"Measurement BIM discipline không hợp lệ".to_string())?),
+                None=>None,
+            };
             let owner_account_id=scope_value.and_then(|v|v.get("owner_account_id")).and_then(serde_json::Value::as_str).map(str::to_string);
             if floor_id==Some(0) || discipline.as_deref().is_some_and(|v|v.trim().is_empty()) || owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) {
                 return Err("Measurement BIM scope không hợp lệ".into());
             }
             let source_handle=item.get("source_handle").and_then(serde_json::Value::as_str).map(str::to_string);
+            if source_handle.as_deref().is_some_and(|h|cadcraft_doc::Handle::parse_hex(h).is_none()) { return Err("Measurement source_handle không hợp lệ".into()); }
             records.push(MeasurementRecord {
                 id, kind, points, raw_value,
                 layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
@@ -1004,6 +1023,27 @@ mod tests {
         let mut state=State::default();
         let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
+    }
+
+    #[test]
+    fn qto_v3_normalizes_legacy_display_discipline_and_rejects_bad_handle() {
+        let legacy_label=serde_json::json!({
+            "version":3,"drawing_distance":0.0,"real_distance_m":0.0,
+            "records":[{"id":1,"kind":"count","points":[],"raw_value":1.0,"layer":"DEVICE","status":"review",
+                "scope":{"floor_id":1,"discipline":"Điện","owner_account_id":"u1"},"source_handle":"2A"}],
+            "audit":[]
+        });
+        let mut state=State::default();
+        state.load_json(&legacy_label).unwrap();
+        assert_eq!(state.records[0].scope.discipline.as_deref(),Some("ELEC"));
+
+        let bad_handle=serde_json::json!({
+            "version":3,"drawing_distance":0.0,"real_distance_m":0.0,
+            "records":[{"id":1,"kind":"count","points":[],"raw_value":1.0,"layer":"DEVICE","status":"review",
+                "scope":{"floor_id":1,"discipline":"ELEC","owner_account_id":"u1"},"source_handle":"NOT_HEX"}],
+            "audit":[]
+        });
+        assert!(State::default().load_json(&bad_handle).is_err());
     }
 
     #[test]

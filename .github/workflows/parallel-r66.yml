@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - 'fix/r66-parallel-ci-6-lanes'
+      - 'integration/cad360-unified-r66'
     paths:
       - 'SOURCE_CAD_R65/**'
       - '.github/workflows/parallel-r66.yml'

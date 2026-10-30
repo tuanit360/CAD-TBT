@@ -286,7 +286,6 @@ pub struct CadApp {
     pub hatch_dlg: Option<hatchdlg::HatchDlgState>,
     /// The Edit Block Definition dialog ([`bedit`]).
     pub bedit: bedit::State,
-    #[cfg(not(target_arch = "wasm32"))]
 }
 
 impl CadApp {
@@ -336,7 +335,6 @@ impl CadApp {
             alias_dlg: None,
             hatch_dlg: None,
             bedit: bedit::State::default(),
-            #[cfg(not(target_arch = "wasm32"))]
         }
     }
 

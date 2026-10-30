@@ -82,11 +82,12 @@ pub(crate) fn paste(s: &mut Session, m: &Mat3) -> Result<Vec<Handle>> {
     let renames = defs.map(|x| merge(d, &x)).unwrap_or_default();
     let mut out = Vec::new();
     for e in &ents {
-        let mut e = adopt(d, e, &renames);
+        let mut e=adopt(d,e,&renames);
+        super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         e.kind.transform(m);
         d.ensure_layer(&e.common.layer);
         out.push(e.handle);
-        if let Some(st) = d.space_mut(&space) {
+        if let Some(st)=d.space_mut(&space) {
             st.push(e);
         }
     }
@@ -101,9 +102,13 @@ pub(crate) fn paste_block(s: &mut Session, at: Vec2) -> Result<Handle> {
     if ents.is_empty() {
         return Err(bad("pasteblock", "the clipboard is empty"));
     }
-    let defs = s.clipboard_source.as_ref().map(|c| c.defs.clone());
-    let base = s.clipboard_base;
-    let d = s.doc_mut()?;
+    let defs=s.clipboard_source.as_ref().map(|c|c.defs.clone());
+    let base=s.clipboard_base;
+    let shared_bim_source=ents.first().and_then(|first|{
+        let key=super::modify::tbt360_bim_scope_key(&first.common)?;
+        ents.iter().all(|e|super::modify::tbt360_bim_scope_key(&e.common).as_deref()==Some(key.as_str())).then(||first.common.clone())
+    });
+    let d=s.doc_mut()?;
     let renames = defs.map(|x| merge(d, &x)).unwrap_or_default();
     let seed = d.handseed;
     let name = (0..1_000_000u64)
@@ -113,12 +118,16 @@ pub(crate) fn paste_block(s: &mut Session, at: Vec2) -> Result<Handle> {
     let mut b = Block::new(&name);
     b.base = base.to3(0.0);
     for e in &ents {
-        let e = adopt(d, e, &renames);
+        let mut e=adopt(d,e,&renames);
+        super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         d.ensure_layer(&e.common.layer);
         b.entities.push(e);
     }
     d.blocks.insert(name.clone(), Arc::new(b));
-    let h = super::blocks::insert(s, &name, at, 1.0, 0.0, &serde_json::Map::new())?;
+    let h=super::blocks::insert(s,&name,at,1.0,0.0,&serde_json::Map::new())?;
+    if let Some(source)=shared_bim_source {
+        s.doc_mut()?.modify_entity(h,|entity|super::modify::copy_tbt360_bim_scope(&source,&mut entity.common,h))?;
+    }
     s.set_selection(vec![h]);
     Ok(h)
 }

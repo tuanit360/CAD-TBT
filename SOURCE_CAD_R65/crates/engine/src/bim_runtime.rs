@@ -91,38 +91,42 @@ fn reconcile_store(before:&EntityStore,after:&mut EntityStore)->usize {
 fn changed_blocks(before:&Drawing,after:&Drawing)->std::collections::BTreeSet<String> {
     let mut changed=std::collections::BTreeSet::new();
     for (name,block) in &after.blocks {
-        if before.block(name).is_none_or(|old|**old!=**block) { changed.insert(name.to_ascii_uppercase()); }
-    }
-    for name in before.blocks.keys() {
-        if after.block(name).is_none() { changed.insert(name.to_ascii_uppercase()); }
+        if before.block(name).is_some_and(|old|**old!=**block) { changed.insert(name.to_ascii_uppercase()); }
     }
     changed
 }
 
-fn bump_insert_refs_in_store(store:&mut EntityStore,changed:&std::collections::BTreeSet<String>)->usize {
-    let handles=store.handles();
+fn bump_insert_refs_in_store(before:&EntityStore,after:&mut EntityStore,changed:&std::collections::BTreeSet<String>)->usize {
+    let handles=after.handles();
     let mut n=0;
     for h in handles {
-        let should=store.get(h).is_some_and(|e|matches!(&e.kind,EntityKind::Insert(i) if changed.contains(&i.block.to_ascii_uppercase())));
+        let should=after.get(h).is_some_and(|e|matches!(&e.kind,EntityKind::Insert(i) if changed.contains(&i.block.to_ascii_uppercase())));
         if !should { continue; }
-        if store.get(h).and_then(|e|revision(&e.common)).is_none() { continue; }
-        store.modify(h,|e|{
-            let r=revision(&e.common).unwrap_or(1).saturating_add(1);
-            set_identity_revision(&mut e.common,h,r);
-        });
+        let Some(old_rev)=before.get(h).and_then(|e|revision(&e.common)) else { continue };
+        let Some(cur_rev)=after.get(h).and_then(|e|revision(&e.common)) else { continue };
+        if cur_rev>old_rev { continue; }
+        after.modify(h,|e|set_identity_revision(&mut e.common,h,old_rev.saturating_add(1)));
         n+=1;
     }
     n
 }
 
-fn bump_changed_block_references(after:&mut Drawing,changed:&std::collections::BTreeSet<String>)->usize {
+fn bump_changed_block_references(before:&Drawing,after:&mut Drawing,changed:&std::collections::BTreeSet<String>)->usize {
     if changed.is_empty() { return 0; }
-    let mut n=bump_insert_refs_in_store(&mut after.model,changed);
-    for layout in &mut after.layouts { n+=bump_insert_refs_in_store(&mut layout.entities,changed); }
+    let mut n=bump_insert_refs_in_store(&before.model,&mut after.model,changed);
+
+    for layout in &mut after.layouts {
+        let empty=EntityStore::new();
+        let old=before.layouts.iter().find(|x|x.name.eq_ignore_ascii_case(&layout.name)).map(|x|&x.entities).unwrap_or(&empty);
+        n+=bump_insert_refs_in_store(old,&mut layout.entities,changed);
+    }
+
     let names=after.blocks.keys().cloned().collect::<Vec<_>>();
     for name in names {
+        let empty=EntityStore::new();
+        let old=before.block(&name).map(|b|&b.entities).unwrap_or(&empty);
         if let Some(block)=after.blocks.get_mut(&name) {
-            n+=bump_insert_refs_in_store(&mut Arc::make_mut(block).entities,changed);
+            n+=bump_insert_refs_in_store(old,&mut Arc::make_mut(block).entities,changed);
         }
     }
     n
@@ -149,7 +153,7 @@ fn reconcile_drawing(before:&Drawing,after:&mut Drawing)->usize {
         }
     }
 
-    changed+=bump_changed_block_references(after,&block_changes);
+    changed+=bump_changed_block_references(before,after,&block_changes);
     changed
 }
 
@@ -242,6 +246,24 @@ mod tests {
         after.modify_entity(h,|e|if let EntityKind::Line(l)=&mut e.kind { l.b.x=2.0; }).unwrap();
         assert_eq!(reconcile_drawing(&before,&mut after),0);
         assert!(payload_index(&after.entity(h).unwrap().common).is_none());
+    }
+
+    #[test]
+    fn runtime_does_not_double_bump_insert_when_command_already_bumped_it() {
+        let mut before=Drawing::new_metric();
+        let mut block=cadcraft_doc::Block::new("B");
+        block.entities.push(Entity{handle:Handle(0x10),common:Common::default(),kind:EntityKind::Line(Line{a:Vec3::ZERO,b:Vec3::new(1.0,0.0,0.0)})});
+        before.blocks.insert("B".into(),Arc::new(block));
+        let h=before.add(&Space::Model,common(Handle(1),4),EntityKind::Insert(cadcraft_doc::Insert{
+            block:"B".into(),insert:Vec3::ZERO,scale:Vec3::new(1.0,1.0,1.0),rotation:0.0,attribs:Vec::new(),cols:1,rows:1,col_spacing:0.0,row_spacing:0.0,
+        })).unwrap();
+        let mut after=before.clone();
+        if let Some(b)=after.blocks.get_mut("B") {
+            Arc::make_mut(b).entities.modify(Handle(0x10),|e|if let EntityKind::Line(l)=&mut e.kind { l.b.x=2.0; });
+        }
+        after.modify_entity(h,|e|set_identity_revision(&mut e.common,h,5)).unwrap();
+        reconcile_drawing(&before,&mut after);
+        assert_eq!(revision(&after.entity(h).unwrap().common),Some(5));
     }
 
     #[test]

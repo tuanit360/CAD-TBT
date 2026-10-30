@@ -94,6 +94,7 @@ impl eframe::App for App {
     /// eframe logic callback: syncs the OS animation setting and runs `CadApp::logic`; when the pass index is 0 (the first pass or a hidden tick) it also installs/polls the macOS native menu, polls the spacemouse and persists the workspace; a quit request closes the viewport.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.cad.system_animations = self.system_animations.current();
+        bim_collab::sync_render_filters(&mut self.cad, &self.bim_collab_state);
         // Consume control/open/screenshot queues and time-based autosave, including hidden ticks.
         self.cad.logic(ctx);
         // Host frame work runs here, once per frame, and so also on a hidden logic-only tick (which

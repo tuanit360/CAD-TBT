@@ -46,13 +46,6 @@ impl ModelRevision {
         true
     }
 
-    #[test]
-    fn consumer_can_only_reference_published_revision() {
-        let mut r=ModelRevision{id:1,project_id:"P".into(),workset_id:"W".into(),number:1,state:RevisionState::Working,created_by:"u".into(),reviewed_by:None,published_by:None};
-        assert!(consume_revision("C".into(),&r).is_err());
-        r.state=RevisionState::Published;
-        assert_eq!(consume_revision("C".into(),&r).unwrap().source_revision,1);
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,6 +77,14 @@ pub fn supersede_previous(previous: &mut ModelRevision, next: &ModelRevision) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consumer_can_only_reference_published_revision() {
+        let mut r=ModelRevision{id:1,project_id:"P".into(),workset_id:"W".into(),number:1,state:RevisionState::Working,created_by:"u".into(),reviewed_by:None,published_by:None};
+        assert!(consume_revision("C".into(),&r).is_err());
+        r.state=RevisionState::Published;
+        assert_eq!(consume_revision("C".into(),&r).unwrap().source_revision,1);
+    }
 
     #[test]
     fn revision_requires_review_before_publish() {

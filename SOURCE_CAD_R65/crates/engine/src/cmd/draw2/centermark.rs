@@ -31,9 +31,14 @@ fn center_mark(s: &mut Session, h: Handle) -> Result<Vec<String>> {
         _ => return Err(other("Select a circle or arc.")),
     };
     let ext = r + center_ext(s);
-    let h1 = add_center_line(s, c - Vec2::X * ext, c + Vec2::X * ext)?;
-    let h2 = add_center_line(s, c - Vec2::Y * ext, c + Vec2::Y * ext)?;
-    Ok(vec![h1.hex(), h2.hex()])
+    let h1=add_center_line(s,c-Vec2::X*ext,c+Vec2::X*ext)?;
+    let h2=add_center_line(s,c-Vec2::Y*ext,c+Vec2::Y*ext)?;
+    {
+        let d=s.doc_mut()?;
+        crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(d,h1,&[h]);
+        crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(d,h2,&[h]);
+    }
+    Ok(vec![h1.hex(),h2.hex()])
 }
 
 fn center_line(s: &mut Session, h1: Handle, h2: Handle) -> Result<Handle> {
@@ -53,8 +58,10 @@ fn center_line(s: &mut Session, h1: Handle, h2: Handle) -> Result<Handle> {
     if dir == Vec2::ZERO {
         return Err(other("The lines do not define a center line."));
     }
-    let ext = center_ext(s);
-    add_center_line(s, st - dir * ext, en + dir * ext)
+    let ext=center_ext(s);
+    let h=add_center_line(s,st-dir*ext,en+dir*ext)?;
+    crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&[h1,h2]);
+    Ok(h)
 }
 
 pub(super) fn run_centermark(s: &mut Session, p: &Value) -> Result<Value> {

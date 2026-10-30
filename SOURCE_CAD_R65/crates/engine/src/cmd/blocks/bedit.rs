@@ -156,9 +156,17 @@ fn run_bedit(s: &mut Session, p: &Value) -> Result<Value> {
     open(s, name, create)
 }
 
+fn bump_saved_block_references(s:&mut Session,name:&str)->Result<()> {
+    if name.eq_ignore_ascii_case(crate::blockedit::CURRENT_DRAWING) { return Ok(()); }
+    let d=s.doc_mut()?;
+    super::attribs::update_reference_entities(d,name,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,e.handle));
+    Ok(())
+}
+
 fn run_bsave(s: &mut Session, _p: &Value) -> Result<Value> {
     s.state_mut()?.save_block_editor(None)?;
-    let name = s.state()?.block_editor().unwrap_or_default().to_string();
+    let name=s.state()?.block_editor().unwrap_or_default().to_string();
+    bump_saved_block_references(s,&name)?;
     s.echo(format!("Block \"{name}\" saved."));
     Ok(json!({ "block": name }))
 }
@@ -183,7 +191,8 @@ fn run_bsaveas(s: &mut Session, p: &Value) -> Result<Value> {
     let name = str_param(p, "name").ok_or_else(|| bad("bsaveas", "`name` is required"))?.trim().to_string();
     check_save_as(s, &name, bool_or(p, "replace", false))?;
     s.state_mut()?.save_block_editor(Some(&name))?;
-    let name = s.state()?.block_editor().unwrap_or_default().to_string();
+    let name=s.state()?.block_editor().unwrap_or_default().to_string();
+    bump_saved_block_references(s,&name)?;
     s.echo(format!("Block \"{name}\" saved; the Block Editor now edits it."));
     Ok(json!({ "block": name }))
 }
@@ -194,6 +203,7 @@ fn close(s: &mut Session, save: bool) -> Result<Value> {
     let saved = save && st.block_unsaved();
     s.state_mut()?.close_block_editor(save)?;
     if saved {
+        bump_saved_block_references(s,&name)?;
         s.echo(format!("Block \"{name}\" saved."));
     }
     Ok(json!({ "block": name, "saved": saved }))

@@ -417,6 +417,7 @@ fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
                 }
                 _ => {}
             }
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
         })?;
     }
     Ok(json!({ "changed": hs.len() }))

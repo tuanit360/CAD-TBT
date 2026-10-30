@@ -57,7 +57,7 @@ pub(super) fn run_circle_ttt(s: &mut Session, p: &Value) -> Result<Value> {
 /// TTR (two picks + radius) or TTT (three picks). Also used by CIRCLE's `Ttr` option.
 pub(crate) struct TanCircleM {
     radius_mode: bool,
-    picks: Vec<(TanObj, Vec2)>,
+    picks: Vec<(Handle, TanObj, Vec2)>,
 }
 
 impl TanCircleM {
@@ -78,7 +78,7 @@ impl Interactive for TanCircleM {
                 1 => Prompt::new("Specify point on object for second tangent of circle", Accept::POINT),
                 _ => {
                     let r = s.doc().map(|d| d.header.f64("CIRCLERAD", 0.0)).unwrap_or(0.0);
-                    let p = Prompt::new("Specify radius of circle", Accept::POINT_OR_NUMBER).base_opt(self.picks.last().map(|x| x.1)).distance();
+                    let p = Prompt::new("Specify radius of circle", Accept::POINT_OR_NUMBER).base_opt(self.picks.last().map(|x|x.2)).distance();
                     if r > 0.0 { p.default(format!("{r:.4}")) } else { p }
                 }
             }
@@ -93,17 +93,16 @@ impl Interactive for TanCircleM {
             return match i {
                 Input::Point(p) => {
                     let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
-                    let o = tan_obj(s, h, p)?;
-                    self.picks.push((o, p));
+                    let o=tan_obj(s,h,p)?;
+                    self.picks.push((h,o,p));
                     if !self.radius_mode && self.picks.len() == 3 {
-                        let (Some(a), Some(b), Some(c)) = (self.picks.first(), self.picks.get(1), self.picks.get(2)) else {
-                            return Ok(Step::Cancel);
-                        };
-                        let c = curves::ttt([*a, *b, *c]).ok_or_else(|| {
+                        let (Some(a),Some(b),Some(c))=(self.picks.first(),self.picks.get(1),self.picks.get(2)) else { return Ok(Step::Cancel); };
+                        let c=curves::ttt([(a.1,a.2),(b.1,b.2),(c.1,c.2)]).ok_or_else(||{
                             self.picks.clear();
                             other("Circle does not exist.")
                         })?;
-                        s.add_entity(circle(c.center, c.radius))?;
+                        let nh=s.add_entity(circle(c.center,c.radius))?;
+                        crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,nh,&[a.0,b.0,c.0]);
                         return Ok(Step::Done);
                     }
                     Ok(Step::Continue)
@@ -113,7 +112,7 @@ impl Interactive for TanCircleM {
             };
         }
         let r = match i {
-            Input::Point(p) => self.picks.last().map(|x| x.1.dist(p)).unwrap_or(0.0),
+            Input::Point(p)=>self.picks.last().map(|x|x.2.dist(p)).unwrap_or(0.0),
             Input::Text(t) => number(&t).ok_or_else(|| other("Requires numeric distance or second point."))?,
             Input::Enter => s.doc()?.header.f64("CIRCLERAD", 0.0),
             _ => return Ok(Step::Continue),
@@ -121,14 +120,15 @@ impl Interactive for TanCircleM {
         if r.is_nan() || r <= 0.0 {
             return Err(other("Value must be positive and nonzero."));
         }
-        let ((o1, p1), (o2, p2)) = match (self.picks.first(), self.picks.get(1)) {
-            (Some(a), Some(b)) => (*a, *b),
-            _ => return Ok(Step::Cancel),
+        let ((h1,o1,p1),(h2,o2,p2))=match (self.picks.first(),self.picks.get(1)) {
+            (Some(a),Some(b))=>(*a,*b),
+            _=>return Ok(Step::Cancel),
         };
-        match curves::ttr(o1, p1, o2, p2, r) {
-            Some(c) => {
-                s.add_entity(circle(c.center, c.radius))?;
-                s.doc_mut()?.header.set_f64("CIRCLERAD", r);
+        match curves::ttr(o1,p1,o2,p2,r) {
+            Some(c)=>{
+                let nh=s.add_entity(circle(c.center,c.radius))?;
+                crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,nh,&[h1,h2]);
+                s.doc_mut()?.header.set_f64("CIRCLERAD",r);
                 Ok(Step::Done)
             }
             None => {

@@ -63,6 +63,11 @@ pub struct State {
     next_audit_sequence: u64,
     undo: Vec<Vec<MeasurementRecord>>,
     redo: Vec<Vec<MeasurementRecord>>,
+    selected_record_id: Option<u64>,
+    edit_work_group: String,
+    edit_work_code: String,
+    edit_description: String,
+    edit_note: String,
 }
 
 impl State {
@@ -122,6 +127,16 @@ impl State {
         let before = self.records[index].status;
         self.records[index].status = status;
         self.audit_change(id, "STATUS", Some(before.code().into()), Some(status.code().into()));
+        true
+    }
+
+    fn select_record(&mut self, id: u64) -> bool {
+        let Some(record) = self.records.iter().find(|r| r.id == id).cloned() else { return false; };
+        self.selected_record_id = Some(id);
+        self.edit_work_group = record.work_group;
+        self.edit_work_code = record.work_code;
+        self.edit_description = record.description;
+        self.edit_note = record.note;
         true
     }
 
@@ -222,6 +237,11 @@ impl State {
         self.next_audit_sequence = self.audit.iter().map(|a| a.sequence).max().unwrap_or(0) + 1;
         self.undo.clear();
         self.redo.clear();
+        self.selected_record_id = None;
+        self.edit_work_group.clear();
+        self.edit_work_code.clear();
+        self.edit_description.clear();
+        self.edit_note.clear();
         Ok(())
     }
 }
@@ -545,6 +565,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
                     ui.horizontal(|ui| {
                         if ui.small_button("✓").on_hover_text("Xác nhận").clicked() { action=Some((record.id,1)); }
                         if ui.small_button("⊘").on_hover_text("Loại khỏi khối lượng").clicked() { action=Some((record.id,2)); }
+                        if ui.small_button("✎").on_hover_text("Sửa mã công tác / diễn giải / ghi chú").clicked() { action=Some((record.id,4)); }
                         if ui.small_button("×").on_hover_text("Xóa phép đo").clicked() { action=Some((record.id,3)); }
                     });
                     ui.end_row();
@@ -556,9 +577,41 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State) {
                 1 => { let _ = state.set_status(id, MeasureStatus::Confirmed); }
                 2 => { let _ = state.set_status(id, MeasureStatus::Excluded); }
                 3 => { let _ = state.delete_measurement(id); }
+                4 => { let _ = state.select_record(id); }
                 _ => {}
             }
         }
+    }
+
+    if let Some(id) = state.selected_record_id {
+        ui.separator();
+        ui.group(|ui| {
+            ui.strong(format!("Sửa phép đo #{id}"));
+            ui.horizontal(|ui| {
+                ui.label("Nhóm công việc:");
+                ui.text_edit_singleline(&mut state.edit_work_group);
+                ui.label("Mã công tác:");
+                ui.text_edit_singleline(&mut state.edit_work_code);
+            });
+            ui.horizontal(|ui| {
+                ui.label("Diễn giải:");
+                ui.text_edit_singleline(&mut state.edit_description);
+            });
+            ui.horizontal(|ui| {
+                ui.label("Ghi chú:");
+                ui.text_edit_singleline(&mut state.edit_note);
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Lưu thông tin").clicked() {
+                    let group=state.edit_work_group.clone();
+                    let code=state.edit_work_code.clone();
+                    let description=state.edit_description.clone();
+                    let note=state.edit_note.clone();
+                    let _=state.edit_metadata(id,group,code,description,note);
+                }
+                if ui.button("Đóng sửa").clicked() { state.selected_record_id=None; }
+            });
+        });
     }
 
     ui.separator();
@@ -643,6 +696,17 @@ mod tests {
         assert!((reopened.records[0].raw_value * reopened.scale_to_m().unwrap() - 2.5).abs() < 1e-12);
         assert_eq!(reopened.audit, state.audit);
         assert!(reopened.next_audit_sequence > reopened.audit.last().map(|a| a.sequence).unwrap_or(0));
+    }
+
+    #[test]
+    fn selecting_record_populates_metadata_editor_and_save_is_audited() {
+        let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
+        let id=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into()).unwrap();
+        assert!(state.select_record(id));
+        state.edit_work_code="EL-001".into();
+        assert!(state.edit_metadata(id,state.edit_work_group.clone(),state.edit_work_code.clone(),state.edit_description.clone(),state.edit_note.clone()));
+        assert_eq!(state.records[0].work_code,"EL-001");
+        assert!(state.audit.iter().any(|a|a.record_id==id&&a.action=="EDIT_METADATA"));
     }
 
     #[test]

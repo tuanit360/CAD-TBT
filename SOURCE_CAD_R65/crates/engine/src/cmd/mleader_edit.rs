@@ -285,9 +285,10 @@ fn move_content(s: &mut Session, moves: &[(Handle, Vec2)]) -> Result<()> {
         if !delta.is_finite() {
             continue;
         }
-        d.modify_entity(*h, |e| {
-            if let EntityKind::MLeader(m) = &mut e.kind {
-                shift_content(m, *delta);
+        d.modify_entity(*h,|e|{
+            if let EntityKind::MLeader(m)=&mut e.kind {
+                shift_content(m,*delta);
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
             }
         })?;
     }

@@ -1,0 +1,157 @@
+name: CAD360 R66 Parallel CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main, integration/cad360-unified-r66]
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - '.github/workflows/parallel-r66.yml'
+  push:
+    branches:
+      - 'fix/r66-parallel-ci-6-lanes'
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - '.github/workflows/parallel-r66.yml'
+
+concurrency:
+  group: cad360-r66-parallel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lane-1-core:
+    name: "1 - Core compile"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo metadata --locked --no-deps --format-version 1 > $null
+      - run: cargo check --locked -p cadcraft-engine -p cadcraft-doc -p cadcraft-render
+
+  lane-2-io-xref:
+    name: "2 - IO and XREF"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft-engine --test xref -- --nocapture
+      - run: cargo test --locked -p cadcraft-io --test it -- --nocapture
+
+  lane-3-ui:
+    name: "3 - UI and Vietnamese"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft-ui-egui menus::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft-ui-egui layers::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft-ui-egui palettes::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft-ui-egui i18n::tests -- --nocapture
+      - name: Verify product title
+        shell: pwsh
+        run: |
+          $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
+          if ($main -notmatch "CAD 360 Việt Nam - TBT") { throw "CAD360 product title missing" }
+
+  lane-4-qto-bim:
+    name: "4 - QTO and BIM"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft bim_ -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine bim_ -- --nocapture
+
+  lane-5-regression:
+    name: "5 - Engine regression"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine clipboard -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine assoc_array -- --nocapture
+
+  lane-6-workspace:
+    name: "6 - Full workspace"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo check --workspace --locked
+      - run: cargo test --workspace --locked --no-fail-fast
+
+  portable:
+    name: "7 - Portable Windows x64"
+    needs: [lane-1-core, lane-2-io-xref, lane-3-ui, lane-4-qto-bim, lane-5-regression, lane-6-workspace]
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Build release
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli --target x86_64-pc-windows-msvc
+      - name: Assemble portable package
+        shell: pwsh
+        working-directory: .
+        run: |
+          $bin = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $out = "portable/CAD360_VietNam_TBT_Win64"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "$bin/cadcraft.exe" "$out/CAD360.exe"
+          Copy-Item "$bin/cadcraft-cli.exe" "$out/cadcraft-cli.exe"
+          & "$out/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
+          "CAD360 Viet Nam - TBT Portable x64. Run CAD360.exe." | Set-Content "$out/README.txt" -Encoding UTF8
+          Compress-Archive -Path "$out/*" -DestinationPath "portable/CAD360_VietNam_TBT_Portable_Win64.zip" -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Portable_Win64
+          path: portable/CAD360_VietNam_TBT_Portable_Win64.zip
+          if-no-files-found: error

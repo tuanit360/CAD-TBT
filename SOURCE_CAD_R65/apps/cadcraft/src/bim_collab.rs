@@ -163,6 +163,15 @@ impl IssueStatus {
 }
 
 #[derive(Clone, Debug)]
+pub struct CoordinationCandidate {
+    pub floor_id: u64,
+    pub a: cadcraft_doc::Handle,
+    pub discipline_a: Discipline,
+    pub b: cadcraft_doc::Handle,
+    pub discipline_b: Discipline,
+}
+
+#[derive(Clone, Debug)]
 pub struct CoordinationIssue {
     pub id: u64,
     pub floor_id: u64,
@@ -400,6 +409,7 @@ pub struct State {
     pub access_rules: Vec<AccessRule>,
     pub progress: Vec<ScopeProgress>,
     pub issues: Vec<CoordinationIssue>,
+    pub coordination_candidates: Vec<CoordinationCandidate>,
     next_issue_id: u64,
     pub project_id: String,
     pub project_name: String,
@@ -462,6 +472,7 @@ impl Default for State {
                 ScopeProgress { floor_id: 1, discipline: Discipline::Plumbing, percent: 0, status: ScopeStatus::NotStarted, updated_by: "mep-water-01".into() },
             ],
             issues: Vec::new(),
+            coordination_candidates: Vec::new(),
             next_issue_id: 1,
             project_id: "project-local-001".into(),
             project_name: "Dự án BIM".into(),
@@ -546,6 +557,35 @@ impl State {
             }
         }
         self.work_session_known_handles = current_handles;
+    }
+
+    fn scan_2d_coordination_candidates(&mut self, app: &cadcraft_ui_egui::CadApp, floor_id: u64, max_pairs: usize) {
+        self.coordination_candidates.clear();
+        let Ok(doc) = app.session.doc() else { return };
+        let scoped = doc.model.iter().filter_map(|entity| {
+            let meta = bim_meta(&entity.common)?;
+            (meta.floor_id == floor_id).then_some((entity.clone(), meta))
+        }).collect::<Vec<_>>();
+        let mut checked = 0usize;
+        for i in 0..scoped.len() {
+            for j in (i + 1)..scoped.len() {
+                if checked >= max_pairs { return; }
+                checked += 1;
+                let (a, ma) = &scoped[i];
+                let (b, mb) = &scoped[j];
+                if ma.discipline == mb.discipline { continue; }
+                let ba = cadcraft_doc::entity_bounds(doc, a.as_ref(), 0);
+                let bb = cadcraft_doc::entity_bounds(doc, b.as_ref(), 0);
+                if ba.is_empty() || bb.is_empty() || !ba.intersects(&bb) { continue; }
+                self.coordination_candidates.push(CoordinationCandidate {
+                    floor_id,
+                    a: a.handle,
+                    discipline_a: ma.discipline,
+                    b: b.handle,
+                    discipline_b: mb.discipline,
+                });
+            }
+        }
     }
 
     fn ensure_progress_scope(&mut self, floor_id: u64, discipline: Discipline) {
@@ -1130,6 +1170,26 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     });
 
     ui.separator();
+    ui.collapsing("Kiểm tra giao cắt 2D sơ bộ", |ui| {
+        ui.label("Chỉ dùng bounding box 2D của entity cùng tầng để tìm ứng viên cần kiểm tra; không phải clash BIM 3D chính thức.");
+        if ui.button("Quét tầng hiện tại").clicked() {
+            state.scan_2d_coordination_candidates(app, state.active_floor_id, 20_000);
+        }
+        ui.label(format!("Ứng viên giao cắt: {}", state.coordination_candidates.len()));
+        egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+            egui::Grid::new("bim_coord_candidates").striped(true).show(ui, |ui| {
+                ui.strong("A"); ui.strong("Bộ môn A"); ui.strong("B"); ui.strong("Bộ môn B"); ui.end_row();
+                for c in state.coordination_candidates.iter().take(200) {
+                    ui.label(c.a.hex());
+                    ui.label(c.discipline_a.label());
+                    ui.label(c.b.hex());
+                    ui.label(c.discipline_b.label());
+                    ui.end_row();
+                }
+            });
+        });
+    });
+
     ui.collapsing("Issue phối hợp / Coordination", |ui| {
         let selected = app.session.selection().first().copied();
         ui.horizontal(|ui| {
@@ -1299,6 +1359,19 @@ mod tests {
         p.percent = 100;
         p.status = ScopeStatus::Complete;
         assert_eq!(p.status, ScopeStatus::Complete);
+    }
+
+    #[test]
+    fn coordination_candidate_keeps_floor_and_disciplines() {
+        let c = CoordinationCandidate {
+            floor_id: 3,
+            a: cadcraft_doc::Handle(1),
+            discipline_a: Discipline::Electrical,
+            b: cadcraft_doc::Handle(2),
+            discipline_b: Discipline::Plumbing,
+        };
+        assert_eq!(c.floor_id, 3);
+        assert_ne!(c.discipline_a, c.discipline_b);
     }
 
     #[test]

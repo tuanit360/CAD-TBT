@@ -150,7 +150,23 @@ jobs:
           & "$out/cadcraft-cli.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
           "CAD360 Viet Nam - TBT Portable x64. Run CAD360.exe." | Set-Content "$out/README.txt" -Encoding UTF8
+          # Verify PE magic and target machine (AMD64) before distributing.
+          foreach ($exe in @("$out/CAD360.exe", "$out/cadcraft-cli.exe")) {
+            $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exe))
+            if ($bytes.Length -lt 100000 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Invalid Windows executable: $exe" }
+            $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+            if ([BitConverter]::ToUInt32($bytes, $pe) -ne 0x00004550 -or [BitConverter]::ToUInt16($bytes, $pe + 4) -ne 0x8664) { throw "Expected Windows x64 PE executable: $exe" }
+          }
+          $hashes = Get-ChildItem $out -Filter "*.exe" | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" }
+          $hashes | Set-Content "$out/SHA256SUMS.txt" -Encoding ascii
           Compress-Archive -Path "$out/*" -DestinationPath "portable/CAD360_VietNam_TBT_Portable_Win64.zip" -CompressionLevel Optimal -Force
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path "portable/CAD360_VietNam_TBT_Portable_Win64.zip"))
+          try {
+            foreach ($name in @("CAD360.exe", "cadcraft-cli.exe", "SHA256SUMS.txt", "README.txt")) {
+              if (!$zip.Entries.Where({ $_.Name -eq $name })) { throw "Missing portable ZIP entry: $name" }
+            }
+          } finally { $zip.Dispose() }
       - uses: actions/upload-artifact@v4
         with:
           name: CAD360_VietNam_TBT_Portable_Win64

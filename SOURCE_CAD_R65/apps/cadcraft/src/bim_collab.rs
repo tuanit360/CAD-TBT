@@ -184,6 +184,21 @@ pub struct AccessRule {
 }
 
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewMode {
+    Edit,
+    Reference,
+}
+
+impl ViewMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Edit => "Chỉnh sửa",
+            Self::Reference => "Tham chiếu",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ViewSlot {
     pub floor_id: u64,
@@ -191,6 +206,7 @@ pub struct ViewSlot {
     pub owner_account_id: Option<String>,
     pub overlay_opacity: f32,
     pub show_other_users: bool,
+    pub mode: ViewMode,
 }
 
 #[derive(Clone, Debug)]
@@ -406,10 +422,10 @@ impl Default for State {
             UserAccess { account_id: "mep-water-01".into(), display_name: "Kỹ sư nước".into(), discipline: Discipline::Plumbing, can_edit: false, can_view_other_disciplines: false, can_view_other_floors: true },
         ];
         let views = vec![
-            ViewSlot { floor_id: 1, discipline: Discipline::Architecture, owner_account_id: Some("local-owner".into()), overlay_opacity: 1.0, show_other_users: false },
-            ViewSlot { floor_id: 1, discipline: Discipline::Structure, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true },
-            ViewSlot { floor_id: 1, discipline: Discipline::Electrical, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true },
-            ViewSlot { floor_id: 1, discipline: Discipline::Plumbing, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true },
+            ViewSlot { floor_id: 1, discipline: Discipline::Architecture, owner_account_id: Some("local-owner".into()), overlay_opacity: 1.0, show_other_users: false, mode: ViewMode::Edit },
+            ViewSlot { floor_id: 1, discipline: Discipline::Structure, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true, mode: ViewMode::Reference },
+            ViewSlot { floor_id: 1, discipline: Discipline::Electrical, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true, mode: ViewMode::Reference },
+            ViewSlot { floor_id: 1, discipline: Discipline::Plumbing, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true, mode: ViewMode::Reference },
         ];
         Self {
             connection: ConnectionMode::Offline,
@@ -457,6 +473,31 @@ impl Default for State {
 }
 
 impl State {
+    fn active_native_view_index(&self, app: &cadcraft_ui_egui::CadApp) -> usize {
+        let tiles = app.session.model_tiles();
+        if tiles.is_empty() {
+            0
+        } else {
+            tiles.iter().position(|t| t.active).unwrap_or(0).min(self.views.len().saturating_sub(1))
+        }
+    }
+
+    fn sync_scope_from_active_view(&mut self, app: &cadcraft_ui_egui::CadApp) {
+        let index = self.active_native_view_index(app);
+        if let Some(slot) = self.views.get(index) {
+            self.active_floor_id = slot.floor_id;
+            self.active_discipline = slot.discipline;
+        }
+    }
+
+    fn can_edit_active_view(&self, app: &cadcraft_ui_egui::CadApp) -> bool {
+        let index = self.active_native_view_index(app);
+        self.views.get(index).is_some_and(|slot| {
+            slot.mode == ViewMode::Edit
+                && self.has_scope_access(&self.current_account_id, slot.floor_id, slot.discipline, true)
+        })
+    }
+
     fn apply_native_viewports(&self, app: &mut cadcraft_ui_egui::CadApp) -> Result<(), String> {
         let params = match self.layout {
             ViewLayout::One => serde_json::json!({ "option": "single" }),
@@ -478,7 +519,7 @@ impl State {
     }
 
     fn tag_new_entities_in_work_session(&mut self, app: &mut cadcraft_ui_egui::CadApp) {
-        if !self.work_session_active || self.auth.status == AuthStatus::SignedOut {
+        if !self.work_session_active || self.auth.status == AuthStatus::SignedOut || !self.can_edit_active_view(app) {
             return;
         }
         let current_handles = app.session.doc().map(|d| d.model.handles()).unwrap_or_default();
@@ -823,6 +864,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     });
 
     ui.separator();
+    state.sync_scope_from_active_view(app);
     ui.group(|ui| {
         ui.strong("Scope thiết kế hiện hành");
         ui.horizontal(|ui| {
@@ -845,8 +887,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         state.tag_new_entities_in_work_session(app);
         ui.horizontal(|ui| {
             if !state.work_session_active {
-                if ui.button("Bắt đầu phiên thiết kế theo scope này").clicked() {
+                let can_edit = state.can_edit_active_view(app);
+                if ui.add_enabled(can_edit, egui::Button::new("Bắt đầu phiên thiết kế theo scope này")).clicked() {
                     state.start_work_session(app);
+                }
+                if !can_edit {
+                    ui.label("Viewport hiện tại chỉ tham chiếu hoặc tài khoản không có quyền sửa");
                 }
             } else if ui.button("Kết thúc phiên thiết kế").clicked() {
                 state.stop_work_session();
@@ -1002,6 +1048,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         }
                     });
                 ui.checkbox(&mut slot.show_other_users, "Hiển thị thiết kế của người khác");
+                egui::ComboBox::from_id_salt(("view_mode", i))
+                    .selected_text(slot.mode.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut slot.mode, ViewMode::Edit, ViewMode::Edit.label());
+                        ui.selectable_value(&mut slot.mode, ViewMode::Reference, ViewMode::Reference.label());
+                    });
                 ui.add(egui::Slider::new(&mut slot.overlay_opacity, 0.05..=1.0).text("Độ đậm overlay"));
                 ui.label(format!("Đối tượng phù hợp bộ lọc: {}", visible_count));
                 ui.label(if i == 0 { "Viewport làm việc chính" } else { "Viewport phối hợp/xem trực tiếp" });
@@ -1090,6 +1142,13 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reference_view_is_not_editable_even_with_account_permission() {
+        let state = State::default();
+        assert_eq!(state.views[0].mode, ViewMode::Edit);
+        assert_eq!(state.views[1].mode, ViewMode::Reference);
+    }
 
     #[test]
     fn view_layout_maps_to_expected_native_viewport_count() {
@@ -1220,7 +1279,7 @@ mod tests {
     #[test]
     fn viewport_filter_matches_floor_discipline_and_optional_owner() {
         let meta = BimEntityMeta { floor_id: 2, discipline: Discipline::Structure, owner_account_id: "struct-01".into(), revision: 1 };
-        let mut slot = ViewSlot { floor_id: 2, discipline: Discipline::Structure, owner_account_id: None, overlay_opacity: 0.3, show_other_users: true };
+        let mut slot = ViewSlot { floor_id: 2, discipline: Discipline::Structure, owner_account_id: None, overlay_opacity: 0.3, show_other_users: true, mode: ViewMode::Reference };
         assert!(slot_matches(&meta, &slot));
         slot.floor_id = 1;
         assert!(!slot_matches(&meta, &slot));

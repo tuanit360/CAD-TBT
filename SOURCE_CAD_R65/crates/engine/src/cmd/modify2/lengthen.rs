@@ -155,7 +155,8 @@ pub(super) fn run_lengthen(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let k = lengthen_kind(&e.kind, point_param(p, "pick"), mode)?;
     let l = measure_len(&k).map(|x| x.0).unwrap_or(0.0);
-    set_kind(s, h, k)?;
+    set_kind(s,h,k)?;
+    s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     Ok(json!({ "handle": h.hex(), "length": l }))
 }
 
@@ -177,7 +178,7 @@ pub(super) struct LengthenM {
     phase: LPhase,
     mode: Option<LenMode>,
     dynamic: bool,
-    history: Vec<(Handle, EntityKind)>,
+    history: Vec<(Handle, EntityKind, cadcraft_doc::Common)>,
 }
 
 impl Interactive for LengthenM {
@@ -272,23 +273,30 @@ impl Interactive for LengthenM {
                     return Ok(Step::Continue);
                 }
                 let mode = self.mode.ok_or_else(|| other("No lengthen mode."))?;
-                let k = curves::entity(s, h)?.kind;
-                let nk = lengthen_kind(&k, Some(*p), mode)?;
-                set_kind(s, h, nk)?;
-                self.history.push((h, k));
+                let e=curves::entity(s,h)?;
+                let k=e.kind.clone();
+                let common=e.common.clone();
+                let nk=lengthen_kind(&k,Some(*p),mode)?;
+                set_kind(s,h,nk)?;
+                s.doc_mut()?.modify_entity(h,|entity|crate::cmd::modify::bump_tbt360_bim_revision(&mut entity.common,h))?;
+                self.history.push((h,k,common));
                 Ok(Step::Continue)
             }
             (LPhase::DynEnd(h, pick), Input::Point(p)) => {
-                let k = curves::entity(s, h)?.kind;
-                let nk = lengthen_kind(&k, Some(pick), LenMode::To(*p))?;
-                set_kind(s, h, nk)?;
-                self.history.push((h, k));
+                let e=curves::entity(s,h)?;
+                let k=e.kind.clone();
+                let common=e.common.clone();
+                let nk=lengthen_kind(&k,Some(pick),LenMode::To(*p))?;
+                set_kind(s,h,nk)?;
+                s.doc_mut()?.modify_entity(h,|entity|crate::cmd::modify::bump_tbt360_bim_revision(&mut entity.common,h))?;
+                self.history.push((h,k,common));
                 self.phase = LPhase::Change;
                 Ok(Step::Continue)
             }
             (LPhase::Change, Input::Keyword(_)) => {
-                if let Some((h, k)) = self.history.pop() {
-                    set_kind(s, h, k)?;
+                if let Some((h,k,common))=self.history.pop() {
+                    set_kind(s,h,k)?;
+                    s.doc_mut()?.modify_entity(h,|entity|entity.common=common)?;
                 }
                 Ok(Step::Continue)
             }

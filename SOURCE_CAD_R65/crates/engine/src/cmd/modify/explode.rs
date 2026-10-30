@@ -180,18 +180,24 @@ pub(crate) fn explode_with(
         }
         let Some(e) = s.doc()?.entity(*h).map(|e| (**e).clone()) else { continue };
         let Some(parts) = pieces(s.doc()?, &e) else { continue };
-        // The pieces of an object are new objects: its xdata goes with it. A block reference's
-        // pieces are copies of the block's objects and keep theirs.
-        let own_pieces = !matches!(e.kind, EntityKind::Insert(_));
-        let d = s.doc_mut()?;
+        // Foreign xdata keeps EXPLODE's existing semantics. TBT360_BIM is special: derived
+        // pieces inherit BIM scope, but every new piece gets its own entity identity/revision.
+        let own_pieces=!matches!(e.kind,EntityKind::Insert(_));
+        let parent_common=e.common.clone();
+        let d=s.doc_mut()?;
         d.remove_entity(*h);
         for mut p in parts {
             if own_pieces {
                 p.common.xdata.clear();
             }
-            p.handle = d.new_handle();
+            p.handle=d.new_handle();
+            if super::tbt360_bim_scope_key(&p.common).is_some() {
+                super::refresh_tbt360_bim_copy_identity(&mut p.common,p.handle);
+            } else {
+                super::copy_tbt360_bim_scope(&parent_common,&mut p.common,p.handle);
+            }
             out.push(p.handle);
-            if let Some(st) = d.space_mut(&space) {
+            if let Some(st)=d.space_mut(&space) {
                 st.push(p);
             }
         }

@@ -385,6 +385,9 @@ pub struct State {
     pub progress: Vec<ScopeProgress>,
     pub issues: Vec<CoordinationIssue>,
     next_issue_id: u64,
+    pub project_id: String,
+    pub project_name: String,
+    remote_revisions: Vec<(cadcraft_doc::Handle, u64)>,
 }
 
 impl Default for State {
@@ -442,6 +445,9 @@ impl Default for State {
             ],
             issues: Vec::new(),
             next_issue_id: 1,
+            project_id: "project-local-001".into(),
+            project_name: "Dự án BIM".into(),
+            remote_revisions: Vec::new(),
         }
     }
 }
@@ -486,11 +492,98 @@ impl State {
         self.dirty_local_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
     }
 
-    fn mark_all_synced(&mut self) {
-        for change in &mut self.pending_changes {
-            change.synced = true;
+    fn remote_revision(&self, handle: cadcraft_doc::Handle) -> u64 {
+        self.remote_revisions.iter().find(|(h, _)| *h == handle).map(|(_, r)| *r).unwrap_or(0)
+    }
+
+    fn set_remote_revision(&mut self, handle: cadcraft_doc::Handle, revision: u64) {
+        if let Some((_, r)) = self.remote_revisions.iter_mut().find(|(h, _)| *h == handle) {
+            *r = revision;
+        } else {
+            self.remote_revisions.push((handle, revision));
         }
-        self.dirty_local_changes = 0;
+    }
+
+    fn sync_pending_changes(&mut self) {
+        self.conflicts.clear();
+        let mut accepted = Vec::new();
+        for change in &self.pending_changes {
+            if change.synced { continue; }
+            let mut change_conflicts = false;
+            for item in &change.items {
+                let remote = self.remote_revision(item.handle);
+                if let Some(conflict) = detect_conflict(item, remote) {
+                    self.conflicts.push(conflict);
+                    change_conflicts = true;
+                } else {
+                    accepted.push((change.id, item.handle, item.local_revision));
+                }
+            }
+            if change_conflicts {
+                continue;
+            }
+        }
+        for (change_id, handle, revision) in accepted {
+            self.set_remote_revision(handle, revision);
+            if let Some(change) = self.pending_changes.iter_mut().find(|c| c.id == change_id) {
+                change.synced = true;
+            }
+        }
+        self.dirty_local_changes = self.pending_changes.iter().filter(|c| !c.synced).map(|c| c.items.len()).sum();
+    }
+
+    fn snapshot_json(&self) -> serde_json::Value {
+        let floors = self.floors.iter().map(|f| serde_json::json!({
+            "id": f.id, "name": f.name, "elevation_m": f.elevation_m, "height_m": f.height_m
+        })).collect::<Vec<_>>();
+        let progress = self.progress.iter().map(|p| serde_json::json!({
+            "floor_id": p.floor_id,
+            "discipline": p.discipline.label(),
+            "percent": p.percent,
+            "status": p.status.label(),
+            "updated_by": p.updated_by
+        })).collect::<Vec<_>>();
+        serde_json::json!({
+            "version": 1,
+            "project_id": self.project_id,
+            "project_name": self.project_name,
+            "coordinates": {
+                "origin_x_m": self.coordinates.origin_x_m,
+                "origin_y_m": self.coordinates.origin_y_m,
+                "origin_z_m": self.coordinates.origin_z_m,
+                "rotation_deg": self.coordinates.rotation_deg
+            },
+            "floors": floors,
+            "active_floor_id": self.active_floor_id,
+            "active_discipline": self.active_discipline.label(),
+            "progress": progress
+        })
+    }
+
+    fn load_snapshot_json(&mut self, value: &serde_json::Value) -> Result<(), String> {
+        self.project_id = value.get("project_id").and_then(serde_json::Value::as_str).unwrap_or("project-local-001").to_string();
+        self.project_name = value.get("project_name").and_then(serde_json::Value::as_str).unwrap_or("Dự án BIM").to_string();
+        if let Some(c) = value.get("coordinates") {
+            self.coordinates.origin_x_m = c.get("origin_x_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            self.coordinates.origin_y_m = c.get("origin_y_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            self.coordinates.origin_z_m = c.get("origin_z_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+            self.coordinates.rotation_deg = c.get("rotation_deg").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+        }
+        if let Some(items) = value.get("floors").and_then(serde_json::Value::as_array) {
+            let mut floors = Vec::new();
+            for item in items {
+                let id = item.get("id").and_then(serde_json::Value::as_u64).ok_or_else(|| "Floor thiếu id".to_string())?;
+                let name = item.get("name").and_then(serde_json::Value::as_str).unwrap_or("Tầng").to_string();
+                let elevation_m = item.get("elevation_m").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+                let height_m = item.get("height_m").and_then(serde_json::Value::as_f64).unwrap_or(3.6);
+                floors.push(Floor { id, name, elevation_m, height_m });
+            }
+            if !floors.is_empty() {
+                self.floors = floors;
+            }
+        }
+        self.active_floor_id = value.get("active_floor_id").and_then(serde_json::Value::as_u64).unwrap_or_else(|| self.floors.first().map(|f| f.id).unwrap_or(1));
+        Ok(())
     }
 
     fn login_offline(&mut self, account_id: String, display_name: String) {
@@ -604,6 +697,34 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
 
     ui.group(|ui| {
+        ui.strong("Dự án BIM");
+        ui.horizontal(|ui| {
+            ui.label("Mã dự án:");
+            ui.text_edit_singleline(&mut state.project_id);
+            ui.label("Tên dự án:");
+            ui.text_edit_singleline(&mut state.project_name);
+        });
+        ui.horizontal(|ui| {
+            if ui.button("Lưu workspace BIM").clicked() {
+                if let Some(path) = rfd::FileDialog::new().add_filter("TBT BIM Workspace", &["json"]).set_file_name("TBT360_BIM_WORKSPACE.json").save_file() {
+                    if let Ok(data) = serde_json::to_vec_pretty(&state.snapshot_json()) {
+                        let _ = std::fs::write(path, data);
+                    }
+                }
+            }
+            if ui.button("Mở workspace BIM").clicked() {
+                if let Some(path) = rfd::FileDialog::new().add_filter("TBT BIM Workspace", &["json"]).pick_file() {
+                    if let Ok(data) = std::fs::read(path) {
+                        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&data) {
+                            if let Err(e) = state.load_snapshot_json(&value) { eprintln!("BIM workspace: {e}"); }
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    ui.group(|ui| {
         ui.strong("Đăng nhập / Phiên làm việc");
         match state.auth.status {
             AuthStatus::SignedOut => {
@@ -703,8 +824,8 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
             }
         }
 
-        if state.connection == ConnectionMode::Online && state.dirty_local_changes > 0 && ui.button("Đánh dấu đã đồng bộ (mô phỏng server)").clicked() {
-            state.mark_all_synced();
+        if state.connection == ConnectionMode::Online && state.dirty_local_changes > 0 && ui.button("Đồng bộ thay đổi với server (mô phỏng)").clicked() {
+            state.sync_pending_changes();
         }
         if !state.pending_changes.is_empty() {
             ui.label(format!("ChangeSet local: {} | thay đổi chưa đồng bộ: {}", state.pending_changes.len(), state.dirty_local_changes));
@@ -893,6 +1014,50 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sync_accepts_matching_base_revision_and_rejects_stale_change() {
+        let mut state = State::default();
+        let h = cadcraft_doc::Handle(50);
+        state.set_remote_revision(h, 2);
+        state.pending_changes.push(ChangeSet {
+            id: 1,
+            account_id: "local-owner".into(),
+            items: vec![ChangeItem { handle: h, operation: ChangeOperation::Update, base_revision: 2, local_revision: 3 }],
+            synced: false,
+        });
+        state.dirty_local_changes = 1;
+        state.sync_pending_changes();
+        assert_eq!(state.remote_revision(h), 3);
+        assert!(state.pending_changes[0].synced);
+        assert!(state.conflicts.is_empty());
+
+        state.pending_changes.push(ChangeSet {
+            id: 2,
+            account_id: "local-owner".into(),
+            items: vec![ChangeItem { handle: h, operation: ChangeOperation::Update, base_revision: 2, local_revision: 4 }],
+            synced: false,
+        });
+        state.dirty_local_changes = 1;
+        state.sync_pending_changes();
+        assert_eq!(state.conflicts.len(), 1);
+        assert!(!state.pending_changes[1].synced);
+    }
+
+    #[test]
+    fn bim_workspace_snapshot_restores_project_and_floors() {
+        let mut state = State::default();
+        state.project_id = "P-100".into();
+        state.project_name = "Tower A".into();
+        state.coordinates.origin_x_m = 123.5;
+        let json = state.snapshot_json();
+        let mut restored = State::default();
+        restored.load_snapshot_json(&json).unwrap();
+        assert_eq!(restored.project_id, "P-100");
+        assert_eq!(restored.project_name, "Tower A");
+        assert!((restored.coordinates.origin_x_m - 123.5).abs() < 1e-12);
+        assert_eq!(restored.floors.len(), state.floors.len());
+    }
 
     #[test]
     fn project_progress_auto_creates_scope_and_completion_status() {

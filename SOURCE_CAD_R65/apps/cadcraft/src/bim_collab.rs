@@ -243,6 +243,22 @@ pub struct SyncConflict {
     pub remote_revision: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Presence {
+    pub account_id: String,
+    pub floor_id: u64,
+    pub discipline: Discipline,
+    pub selected_handle: Option<cadcraft_doc::Handle>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectLease {
+    pub handle: cadcraft_doc::Handle,
+    pub account_id: String,
+    pub revision: u64,
+}
+
+
 fn detect_conflict(item: &ChangeItem, remote_revision: u64) -> Option<SyncConflict> {
     if remote_revision == item.base_revision {
         None
@@ -279,6 +295,9 @@ pub struct State {
     pub active_discipline: Discipline,
     pub pending_changes: Vec<ChangeSet>,
     next_change_set_id: u64,
+    pub presence: Vec<Presence>,
+    pub leases: Vec<ObjectLease>,
+    pub conflicts: Vec<SyncConflict>,
 }
 
 impl Default for State {
@@ -313,6 +332,9 @@ impl Default for State {
             active_discipline: Discipline::Architecture,
             pending_changes: Vec::new(),
             next_change_set_id: 1,
+            presence: Vec::new(),
+            leases: Vec::new(),
+            conflicts: Vec::new(),
         }
     }
 }
@@ -335,6 +357,38 @@ impl State {
             change.synced = true;
         }
         self.dirty_local_changes = 0;
+    }
+
+    fn acquire_lease(&mut self, handle: cadcraft_doc::Handle, revision: u64) -> Result<(), String> {
+        if let Some(existing) = self.leases.iter().find(|l| l.handle == handle) {
+            if existing.account_id != self.current_account_id {
+                return Err(format!("Đối tượng đang được {} chỉnh sửa", existing.account_id));
+            }
+            return Ok(());
+        }
+        self.leases.push(ObjectLease { handle, account_id: self.current_account_id.clone(), revision });
+        Ok(())
+    }
+
+    fn release_lease(&mut self, handle: cadcraft_doc::Handle) {
+        self.leases.retain(|l| !(l.handle == handle && l.account_id == self.current_account_id));
+    }
+
+    fn update_presence(&mut self, selected: Option<cadcraft_doc::Handle>) {
+        let floor_id = self.active_floor_id;
+        let discipline = self.active_discipline;
+        if let Some(p) = self.presence.iter_mut().find(|p| p.account_id == self.current_account_id) {
+            p.floor_id = floor_id;
+            p.discipline = discipline;
+            p.selected_handle = selected;
+        } else {
+            self.presence.push(Presence {
+                account_id: self.current_account_id.clone(),
+                floor_id,
+                discipline,
+                selected_handle: selected,
+            });
+        }
     }
 
     pub fn active_user(&self) -> Option<&UserAccess> {
@@ -419,6 +473,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         });
 
         let selected = app.session.selection().to_vec();
+        state.update_presence(selected.first().copied());
         ui.label(format!("Đối tượng đang chọn: {}", selected.len()));
         if ui.button("Gán tầng / bộ môn / chủ sở hữu cho đối tượng đang chọn").clicked() && !selected.is_empty() {
             let owner = state.current_account_id.clone();
@@ -431,15 +486,23 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                         previous_revision = bim_meta(&entity.common).map(|m| m.revision).unwrap_or(0);
                     }
                     let next_revision = previous_revision + 1;
-                    if doc.model.modify(handle, |entity| {
-                        set_bim_meta(&mut entity.common, &BimEntityMeta {
-                            floor_id,
-                            discipline,
-                            owner_account_id: owner.clone(),
-                            revision: next_revision,
-                        });
-                    }) {
-                        state.queue_update(handle, previous_revision, next_revision);
+                    match state.acquire_lease(handle, previous_revision) {
+                        Ok(()) => {
+                            if doc.model.modify(handle, |entity| {
+                                set_bim_meta(&mut entity.common, &BimEntityMeta {
+                                    floor_id,
+                                    discipline,
+                                    owner_account_id: owner.clone(),
+                                    revision: next_revision,
+                                });
+                            }) {
+                                state.queue_update(handle, previous_revision, next_revision);
+                            }
+                            state.release_lease(handle);
+                        }
+                        Err(message) => {
+                            eprintln!("BIM lock: {message}");
+                        }
                     }
                 }
             }
@@ -450,6 +513,12 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         }
         if !state.pending_changes.is_empty() {
             ui.label(format!("ChangeSet local: {} | thay đổi chưa đồng bộ: {}", state.pending_changes.len(), state.dirty_local_changes));
+        }
+        if !state.leases.is_empty() {
+            ui.label(format!("Đối tượng đang khóa mềm: {}", state.leases.len()));
+        }
+        if !state.conflicts.is_empty() {
+            ui.colored_label(egui::Color32::LIGHT_RED, format!("Xung đột cần xử lý: {}", state.conflicts.len()));
         }
     });
 
@@ -521,6 +590,19 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     });
 
     ui.separator();
+    ui.collapsing("Người đang làm việc / Presence", |ui| {
+        egui::Grid::new("bim_presence").striped(true).show(ui, |ui| {
+            ui.strong("Tài khoản"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Đang chọn"); ui.end_row();
+            for p in &state.presence {
+                ui.label(&p.account_id);
+                ui.label(state.floors.iter().find(|f| f.id == p.floor_id).map(|f| f.name.as_str()).unwrap_or("?"));
+                ui.label(p.discipline.label());
+                ui.label(p.selected_handle.map(|h| h.hex()).unwrap_or_else(|| "-".into()));
+                ui.end_row();
+            }
+        });
+    });
+
     ui.collapsing("Quyền tài khoản", |ui| {
         egui::Grid::new("bim_access").striped(true).show(ui, |ui| {
             ui.strong("Tài khoản"); ui.strong("Bộ môn"); ui.strong("Sửa"); ui.strong("Xem bộ môn khác"); ui.strong("Xem tầng khác"); ui.end_row();
@@ -544,6 +626,27 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn soft_lock_prevents_another_account_from_editing_same_object() {
+        let mut state = State::default();
+        let handle = cadcraft_doc::Handle(99);
+        state.acquire_lease(handle, 1).unwrap();
+        state.current_account_id = "struct-01".into();
+        assert!(state.acquire_lease(handle, 1).is_err());
+    }
+
+    #[test]
+    fn presence_tracks_current_user_scope_and_selection() {
+        let mut state = State::default();
+        state.active_floor_id = 2;
+        state.active_discipline = Discipline::Electrical;
+        state.update_presence(Some(cadcraft_doc::Handle(7)));
+        assert_eq!(state.presence.len(), 1);
+        assert_eq!(state.presence[0].floor_id, 2);
+        assert_eq!(state.presence[0].discipline, Discipline::Electrical);
+        assert_eq!(state.presence[0].selected_handle, Some(cadcraft_doc::Handle(7)));
+    }
 
     #[test]
     fn viewport_filter_matches_floor_discipline_and_optional_owner() {

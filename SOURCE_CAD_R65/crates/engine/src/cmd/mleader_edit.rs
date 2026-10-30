@@ -670,7 +670,10 @@ fn collect(s: &mut Session, hs: &[Handle], at: Vec2, layout: Layout, spacing: Op
     let common = s.doc()?.entity(first_h).map(|e| e.common.clone());
     {
         let d = s.doc_mut()?;
-        d.modify_entity(first_h, |e| e.kind = EntityKind::MLeader(merged))?;
+        d.modify_entity(first_h,|e|{
+            e.kind=EntityKind::MLeader(merged);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,first_h);
+        })?;
         for (h, _) in items.iter().skip(1) {
             d.remove_entity(*h);
         }
@@ -679,8 +682,11 @@ fn collect(s: &mut Session, hs: &[Handle], at: Vec2, layout: Layout, spacing: Op
     let mut extra = Vec::new();
     for ins in rest.drain(..) {
         let h = s.add_entity(EntityKind::Insert(ins))?;
-        if let Some(c) = &common {
-            s.doc_mut()?.modify_entity(h, |e| e.common = c.clone())?;
+        if let Some(c)=&common {
+            s.doc_mut()?.modify_entity(h,|e|{
+                e.common=c.clone();
+                crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,h);
+            })?;
         }
         extra.push(h.hex());
     }

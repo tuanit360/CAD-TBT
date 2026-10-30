@@ -34,7 +34,7 @@ impl CadApp {
 
 /// Help ▸ Check for Updates…: check now, and say so when there is nothing newer.
 pub fn check_now(app: &mut CadApp) {
-    app.updates_rt.check_requested = true;
+    app.session.echo("TBT360: cập nhật được phát hành qua kênh TBT, không sử dụng máy chủ cập nhật CADCraft.");
 }
 
 /// Start the checks and collect the answers.

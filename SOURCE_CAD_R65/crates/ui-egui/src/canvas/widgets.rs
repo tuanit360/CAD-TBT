@@ -1,4 +1,4 @@
-use super::draw::draw_list;
+use super::draw::{draw_list, draw_list_filtered};
 use super::grid::draw_grid;
 use super::*;
 

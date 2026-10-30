@@ -37,6 +37,19 @@ fn mleader_kind(s: &Session, pts: &[Vec2], text: &str, landing: bool) -> Option<
     }))
 }
 
+fn bim_sources(p:&Value)->Vec<Handle> {
+    let mut out=Vec::new();
+    if let Some(h)=p.get("source").and_then(Value::as_str).and_then(Handle::parse_hex) { out.push(h); }
+    if let Some(a)=p.get("sources").and_then(Value::as_array) {
+        for v in a {
+            if let Some(h)=v.as_str().and_then(Handle::parse_hex).or_else(||v.as_u64().map(Handle)) {
+                if !out.contains(&h) { out.push(h); }
+            }
+        }
+    }
+    out
+}
+
 pub(super) fn run_mleader(s: &mut Session, p: &Value) -> Result<Value> {
     let pts = points_param(p, "points").ok_or_else(|| bad("mleader", "`points` (arrow … landing) is required"))?;
     let content = crate::cmd::mleader_content::json_content(s, p)?;
@@ -45,8 +58,11 @@ pub(super) fn run_mleader(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("mleader", "need an arrowhead and a landing point"));
     }
     let k = mleader_kind(s, &pts, str_param(p, "text").unwrap_or(""), true).ok_or_else(|| bad("mleader", "bad points"))?;
-    let k = crate::cmd::mleader_content::apply(s, k, &content)?;
-    Ok(json!({ "handle": s.add_entity(k)?.hex() }))
+    let k=crate::cmd::mleader_content::apply(s,k,&content)?;
+    let h=s.add_entity(k)?;
+    let sources=bim_sources(p);
+    crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&sources);
+    Ok(json!({ "handle": h.hex() }))
 }
 
 pub(super) fn run_leader(s: &mut Session, p: &Value) -> Result<Value> {
@@ -55,13 +71,15 @@ pub(super) fn run_leader(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("leader", "need 2+ points"));
     }
     let st = style(s);
-    let h = s.add_entity(EntityKind::Leader(cadcraft_doc::Leader {
-        vertices: pts.iter().map(|q| v3(*q)).collect(),
-        arrow: true,
-        spline: false,
-        style: st,
+    let h=s.add_entity(EntityKind::Leader(cadcraft_doc::Leader {
+        vertices:pts.iter().map(|q|v3(*q)).collect(),
+        arrow:true,
+        spline:false,
+        style:st,
     }))?;
-    let mut out = vec![h.hex()];
+    let sources=bim_sources(p);
+    crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,h,&sources);
+    let mut out=vec![h.hex()];
     if let (Some(t), Some(last)) = (str_param(p, "text"), pts.last()) {
         let th = s.doc()?.dim_style(&style(s)).map(|d| d.text_height).unwrap_or(0.18);
         out.push(

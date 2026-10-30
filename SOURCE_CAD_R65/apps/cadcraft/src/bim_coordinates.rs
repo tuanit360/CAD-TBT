@@ -23,6 +23,14 @@ impl CoordinateFrame {
             z: self.origin.z + p.z,
         }
     }
+
+    pub fn parent_to_local(self, p: Point3) -> Point3 {
+        let dx = p.x - self.origin.x;
+        let dy = p.y - self.origin.y;
+        let a = (-self.rotation_deg).to_radians();
+        let (c, s) = (a.cos(), a.sin());
+        Point3 { x: dx * c - dy * s, y: dx * s + dy * c, z: p.z - self.origin.z }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +83,32 @@ impl SharedCoordinates {
             z: p.z - self.project_base_point.z,
         })
     }
+
+    pub fn shared_to_project(&self, p: Point3) -> Point3 {
+        let frame = CoordinateFrame { origin: self.survey_point, rotation_deg: self.true_north_deg };
+        let local = frame.parent_to_local(p);
+        Point3 {
+            x: local.x + self.project_base_point.x,
+            y: local.y + self.project_base_point.y,
+            z: local.z + self.project_base_point.z,
+        }
+    }
+}
+
+pub fn validate_levels(levels: &[Level]) -> Result<(), String> {
+    for l in levels {
+        if !l.elevation_m.is_finite() || !l.height_m.is_finite() || l.height_m <= 0.0 {
+            return Err(format!("Level {} có cao độ/chiều cao không hợp lệ", l.code));
+        }
+    }
+    let mut sorted = levels.to_vec();
+    sorted.sort_by(|a,b| a.elevation_m.total_cmp(&b.elevation_m));
+    for pair in sorted.windows(2) {
+        if pair[0].building_id == pair[1].building_id && pair[1].elevation_m < pair[0].elevation_m + pair[0].height_m - 1e-9 {
+            return Err(format!("Level {} chồng cao độ với {}", pair[0].code, pair[1].code));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -89,6 +123,18 @@ mod tests {
             true_north_deg: 0.0,
         };
         assert_eq!(c.project_to_shared(Point3 { x: 12.0, y: 23.0, z: 6.0 }), Point3 { x: 1002.0, y: 2003.0, z: 51.0 });
+    }
+
+    #[test]
+    fn shared_coordinate_roundtrip_is_stable() {
+        let c = SharedCoordinates {
+            survey_point: Point3 { x: 1000.0, y: 2000.0, z: 50.0 },
+            project_base_point: Point3 { x: 10.0, y: 20.0, z: 5.0 },
+            true_north_deg: 23.0,
+        };
+        let p = Point3 { x: 14.0, y: 35.0, z: 9.0 };
+        let r = c.shared_to_project(c.project_to_shared(p));
+        assert!((r.x-p.x).abs()<1e-9 && (r.y-p.y).abs()<1e-9 && (r.z-p.z).abs()<1e-9);
     }
 
     #[test]

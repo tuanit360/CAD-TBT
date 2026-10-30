@@ -163,3 +163,23 @@ CREATE TABLE IF NOT EXISTS bim_coordination_issues (
 );
 
 CREATE INDEX IF NOT EXISTS ix_bim_coordination_issue_scope ON bim_coordination_issues(project_id, floor_id, status);
+
+
+CREATE TABLE IF NOT EXISTS bim_audit_log (
+    id bigserial PRIMARY KEY,
+    project_id uuid NOT NULL REFERENCES bim_projects(id) ON DELETE CASCADE,
+    account_id uuid NOT NULL,
+    device_id text NULL,
+    action text NOT NULL,
+    floor_id uuid NULL REFERENCES bim_floors(id),
+    discipline text NULL,
+    design_object_id uuid NULL REFERENCES bim_design_objects(id),
+    source_handle text NULL,
+    base_revision bigint NULL,
+    result_revision bigint NULL,
+    detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_bim_audit_project_time ON bim_audit_log(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_bim_audit_object ON bim_audit_log(project_id, design_object_id, created_at DESC);

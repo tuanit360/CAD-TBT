@@ -209,12 +209,13 @@ fn lwpolyline_elevation_roundtrips() {
 #[test]
 fn tbt360_bim_xdata_and_entity_handle_roundtrip() {
     let mut d=Drawing::new_metric();
-    let mut common=Common::default();
-    common.xdata=vec![
+    let h=d.add(&Space::Model,Common::default(),EntityKind::Line(Line{a:Vec3::new(1.0,2.0,0.0),b:Vec3::new(4.0,6.0,0.0)})).unwrap();
+    let payload=format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",h.hex());
+    d.modify_entity(h,|e|e.common.xdata=vec![
         RawTag{code:1001,value:"TBT360_BIM".into()},
-        RawTag{code:1000,value:"floor=2;discipline=ELEC;owner=u1;revision=7".into()},
-    ];
-    let h=d.add(&Space::Model,common,EntityKind::Line(Line{a:Vec3::new(1.0,2.0,0.0),b:Vec3::new(4.0,6.0,0.0)})).unwrap();
+        RawTag{code:1000,value:payload.clone()},
+    ]).unwrap();
+
     let text=write_dxf(&d);
     assert!(text.contains("TBT360_BIM"));
     let back=read_dxf(text.as_bytes()).unwrap();
@@ -222,7 +223,15 @@ fn tbt360_bim_xdata_and_entity_handle_roundtrip() {
     assert_eq!(entity.handle,h);
     assert!(entity.common.xdata.windows(2).any(|pair|
         pair[0].code==1001 && pair[0].value=="TBT360_BIM"
-            && pair[1].code==1000 && pair[1].value=="floor=2;discipline=ELEC;owner=u1;revision=7"
+            && pair[1].code==1000 && pair[1].value==payload
+    ));
+
+    let back2=read_dxf(write_dxf(&back).as_bytes()).unwrap();
+    let entity2=back2.entity(h).expect("same handle after second DXF reopen");
+    assert_eq!(entity2.handle,h);
+    assert!(entity2.common.xdata.windows(2).any(|pair|
+        pair[0].code==1001 && pair[0].value=="TBT360_BIM"
+            && pair[1].code==1000 && pair[1].value==payload
     ));
 }
 

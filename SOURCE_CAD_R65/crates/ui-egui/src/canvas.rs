@@ -26,6 +26,7 @@ mod widgets;
 use cursor::{draw_crosshair, draw_snap_marker, draw_tracking, effective_point, override_cursor};
 use cycle::{CycleList, cycle_badge, cycle_click, cycle_list, over_canvas_menu, shift_space_cycle};
 pub(crate) use draw::{Look, draw_highlight, draw_list};
+use draw::draw_list_filtered;
 use draw::{draw_drag_gpu, draw_highlight_gpu, draw_list_gpu, list_mesh_key, selection_area_fill};
 use dyn_boxes::dynamic_input;
 pub(crate) use dyn_boxes::length_units;
@@ -704,7 +705,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         draw_vp_content(&mut app.canvas.vp, gpu, &clipped, &f, &xf_paper, bg, app.session.settings.lwdisplay);
         masked = gpu && f.outline.is_some();
     }
-    if app.canvas.gpu.is_some() {
+    let active_tile_index = tiles.iter().position(|(_, tile)| tile.active).unwrap_or(0);
+    let active_filter = app.tile_render_filters.get(active_tile_index).filter(|f| f.enabled).cloned();
+    if let Some(filter) = active_filter {
+        if let Some(list) = &app.canvas.list {
+            draw_list_filtered(&painter, &xf_paper, list, bg, app.session.settings.lwdisplay, Some(&filter.primary_handles), 1.0);
+            draw_list_filtered(&painter, &xf_paper, list, bg, app.session.settings.lwdisplay, Some(&filter.reference_handles), filter.reference_opacity);
+        }
+    } else if app.canvas.gpu.is_some() {
         draw_list_gpu(&mut app.canvas, &painter, &xf_paper, bg, app.session.settings.lwdisplay);
     } else if let Some(list) = &app.canvas.list {
         draw_list(&painter, &xf_paper, list, bg, app.session.settings.lwdisplay);

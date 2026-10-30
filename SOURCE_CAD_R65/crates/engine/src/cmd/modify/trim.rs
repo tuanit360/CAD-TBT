@@ -174,8 +174,10 @@ pub(crate) fn trim(s: &mut Session, h: Handle, pick: Vec2, edges: Edges) -> Resu
     let mut out = Vec::new();
     for k in pieces {
         let nh = d.new_handle();
+        let mut piece_common=common.clone();
+        super::refresh_tbt360_bim_copy_identity(&mut piece_common,nh);
         if let Some(st) = d.space_mut(&space) {
-            st.push(Entity { handle: nh, common: common.clone(), kind: k });
+            st.push(Entity { handle: nh, common: piece_common, kind: k });
             out.push(nh);
         }
     }
@@ -338,6 +340,9 @@ pub(crate) fn extend(s: &mut Session, h: Handle, pick: Vec2, edges: Edges) -> Re
         }
         k => crate::cmd::modify2::extend_other(k, &cut, pick)?,
     };
-    s.doc_mut()?.modify_entity(h, |e| e.kind = new_kind)?;
+    s.doc_mut()?.modify_entity(h, |e| {
+        e.kind = new_kind;
+        super::bump_tbt360_bim_revision(&mut e.common,h);
+    })?;
     Ok(())
 }

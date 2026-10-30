@@ -18,6 +18,15 @@ impl ScopeProgress{
         self.percent=p.min(100);
         self.status=match self.percent{0=>ProgressStatus::NotStarted,100=>ProgressStatus::Complete,_=>ProgressStatus::InProgress};
     }
+
+    #[test]
+    fn issue_follows_open_inprogress_resolved_closed_lifecycle() {
+        let mut i=CoordinationIssue{id:"I1".into(),floor_id:"F1".into(),source_discipline:"ARCH".into(),target_discipline:"STRUCT".into(),source_handle:None,assigned_to:None,severity:IssueSeverity::Error,status:IssueStatus::Open,description:"x".into()};
+        assert!(i.start());
+        assert!(i.resolve());
+        assert!(i.close());
+        assert_eq!(i.status,IssueStatus::Closed);
+    }
 }
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
@@ -36,6 +45,24 @@ pub struct CoordinationIssue{
     pub severity:IssueSeverity,
     pub status:IssueStatus,
     pub description:String,
+}
+
+impl CoordinationIssue {
+    pub fn start(&mut self) -> bool {
+        if self.status != IssueStatus::Open { return false; }
+        self.status = IssueStatus::InProgress;
+        true
+    }
+    pub fn resolve(&mut self) -> bool {
+        if !matches!(self.status, IssueStatus::Open | IssueStatus::InProgress) { return false; }
+        self.status = IssueStatus::Resolved;
+        true
+    }
+    pub fn close(&mut self) -> bool {
+        if self.status != IssueStatus::Resolved { return false; }
+        self.status = IssueStatus::Closed;
+        true
+    }
 }
 
 #[derive(Clone,Debug,PartialEq,Eq)]

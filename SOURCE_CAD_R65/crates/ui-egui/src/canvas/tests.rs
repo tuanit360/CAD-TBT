@@ -1,4 +1,5 @@
 use super::*;
+use super::grips::usable_hot_grips;
 use cadcraft_render::DPrim;
 use crate::Services;
 

@@ -42,6 +42,19 @@ fn model_handles(s: &Session) -> Vec<Handle> {
     s.doc().unwrap().model.iter().map(|e| e.handle).collect()
 }
 
+fn add_bim(s:&mut Session,h:Handle,floor:u64,discipline:&str,owner:&str,revision:u64) {
+    s.doc_mut().unwrap().modify_entity(h,|e|e.common.xdata.extend([
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:format!("floor={floor};discipline={discipline};owner={owner};revision={revision};entity={}",h.hex())},
+    ])).unwrap();
+}
+
+fn bim_payload(s:&Session,h:Handle)->String {
+    let e=s.doc().unwrap().entity(h).unwrap();
+    let at=e.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
+    e.common.xdata.get(at+1).unwrap().value.clone()
+}
+
 #[test]
 fn reading_puts_xdata_on_the_entity() {
     let (s, l, p) = session();
@@ -150,6 +163,42 @@ fn a_copy_saves_its_xdata() {
     let lines: Vec<_> = back.model.iter().filter(|e| matches!(e.kind, EntityKind::Line(_))).collect();
     assert_eq!(lines.len(), 2);
     assert_eq!(tags(&lines[0].common.xdata), tags(&lines[1].common.xdata));
+}
+
+#[test]
+fn trim_pieces_get_new_bim_identities() {
+    let mut s=Session::new();
+    let target=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let e1=Handle::parse_hex(s.execute("line",&json!({"points":[[3,-5],[3,5]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let e2=Handle::parse_hex(s.execute("line",&json!({"points":[[7,-5],[7,5]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,target,2,"ELEC","u1",7);
+    let r=s.execute("trim",&json!({"handle":target.hex(),"pick":[5,0],"edges":[e1.hex(),e2.hex()]})).unwrap();
+    let hs=r["handles"].as_array().unwrap().iter().filter_map(|v|v.as_str().and_then(Handle::parse_hex)).collect::<Vec<_>>();
+    assert_eq!(hs.len(),2);
+    assert!(s.doc().unwrap().entity(target).is_none());
+    for h in hs {
+        let p=bim_payload(&s,h);
+        assert!(p.contains("floor=2"));
+        assert!(p.contains("discipline=ELEC"));
+        assert!(p.contains("owner=u1"));
+        assert!(p.contains("revision=1"));
+        assert!(p.contains(&format!("entity={}",h.hex())));
+    }
+}
+
+#[test]
+fn extend_keeps_bim_identity_and_bumps_revision() {
+    let mut s=Session::new();
+    let target=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    let edge=Handle::parse_hex(s.execute("line",&json!({"points":[[20,-5],[20,5]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,target,3,"STRUCT","u2",4);
+    s.execute("extend",&json!({"handle":target.hex(),"pick":[10,0],"edges":[edge.hex()]})).unwrap();
+    let p=bim_payload(&s,target);
+    assert!(p.contains("floor=3"));
+    assert!(p.contains("discipline=STRUCT"));
+    assert!(p.contains("owner=u2"));
+    assert!(p.contains("revision=5"));
+    assert!(p.contains(&format!("entity={}",target.hex())));
 }
 
 #[test]

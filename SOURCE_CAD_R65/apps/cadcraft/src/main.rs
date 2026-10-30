@@ -144,7 +144,7 @@ impl eframe::App for App {
                 ui.heading("3D / IFC");
                 ui.label("Khu vực tích hợp IFC/Solid/Volume và đối chiếu khối lượng 2D/3D. Chưa được đánh dấu hoàn thành.");
             }
-            MainTab::BimCollab => bim_collab::panel(ui, &mut self.bim_collab_state),
+            MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
         }
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);

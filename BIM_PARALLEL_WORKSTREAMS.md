@@ -95,3 +95,34 @@ Sau khi 6 nhánh vào integration:
 - chạy BIM branch tests
 - smoke test CAD + BIM tab
 - tuyệt đối chưa merge vào main nếu integration chưa xanh.
+
+
+## Nhánh 7 — IFC / Clash 3D
+Branch: `feature/bim-ifc-clash`
+Owner scope:
+- IFC/3D clash domain
+- 3D AABB broadphase
+- bounded candidate generation
+- Hard/Clearance/Duplicate clash classes
+Không coi giao cắt 2D là clash 3D chính thức.
+
+## Nhánh 8 — Realtime Presence
+Branch: `feature/bim-realtime-presence`
+Owner scope:
+- Heartbeat
+- Cursor/selection presence
+- expiring object lease
+- prune disconnected users
+- reconnect-safe realtime state
+
+## Merge order cập nhật
+1. Core Coordinates
+2. Auth / Permissions
+3. Workset / Publish
+4. Offline / Sync
+5. Realtime Presence
+6. Progress / Issues / Audit
+7. IFC / Clash
+8. Viewport / Renderer
+
+Viewport vẫn merge cuối vì phải tiêu thụ scope cuối cùng của coordinates, auth, workset và collaboration state.

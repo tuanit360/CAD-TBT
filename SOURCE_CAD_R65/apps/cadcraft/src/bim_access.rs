@@ -33,6 +33,7 @@ pub struct Grant {
     pub can_view: bool,
     pub can_edit: bool,
     pub can_publish: bool,
+    pub deny: bool,
 }
 
 fn matches(expected: &Option<String>, actual: &Option<String>) -> bool {
@@ -41,7 +42,7 @@ fn matches(expected: &Option<String>, actual: &Option<String>) -> bool {
 
 pub fn authorize(principal: &Principal, scope: &Scope, grants: &[Grant], edit: bool, publish: bool) -> bool {
     if principal.role == ProjectRole::Owner { return true; }
-    grants.iter().any(|g| {
+    let relevant = |g: &&Grant| {
         g.viewer_account_id == principal.account_id
             && g.project_id == scope.project_id
             && matches(&g.building_id, &scope.building_id)
@@ -50,8 +51,9 @@ pub fn authorize(principal: &Principal, scope: &Scope, grants: &[Grant], edit: b
             && matches(&g.discipline, &scope.discipline)
             && matches(&g.workset_id, &scope.workset_id)
             && g.source_owner_account_id.as_ref().is_none_or(|owner| scope.owner_account_id.as_ref() == Some(owner))
-            && if publish { g.can_publish } else if edit { g.can_edit } else { g.can_view }
-    })
+    };
+    if grants.iter().filter(relevant).any(|g| g.deny) { return false; }
+    grants.iter().filter(relevant).any(|g| if publish { g.can_publish } else if edit { g.can_edit } else { g.can_view })
 }
 
 #[cfg(test)]
@@ -64,12 +66,21 @@ mod tests {
         let g=Grant{
             viewer_account_id:"u1".into(),source_owner_account_id:Some("u2".into()),project_id:"P".into(),
             building_id:None,zone_id:None,floor_id:Some("F2".into()),discipline:Some("ELEC".into()),
-            workset_id:Some("LIGHT".into()),can_view:true,can_edit:false,can_publish:false
+            workset_id:Some("LIGHT".into()),can_view:true,can_edit:false,can_publish:false,deny:false
         };
         let s=Scope{project_id:"P".into(),building_id:None,zone_id:None,floor_id:Some("F2".into()),discipline:Some("ELEC".into()),workset_id:Some("LIGHT".into()),owner_account_id:Some("u2".into())};
         assert!(authorize(&p,&s,std::slice::from_ref(&g),false,false));
         assert!(!authorize(&p,&s,std::slice::from_ref(&g),true,false));
         let mut wrong=s.clone(); wrong.owner_account_id=Some("u3".into());
         assert!(!authorize(&p,&wrong,&[g],false,false));
+    }
+
+    #[test]
+    fn explicit_deny_overrides_allow() {
+        let p=Principal{account_id:"u1".into(),role:ProjectRole::Designer};
+        let s=Scope{project_id:"P".into(),building_id:None,zone_id:None,floor_id:Some("F1".into()),discipline:Some("ARCH".into()),workset_id:None,owner_account_id:Some("u2".into())};
+        let allow=Grant{viewer_account_id:"u1".into(),source_owner_account_id:None,project_id:"P".into(),building_id:None,zone_id:None,floor_id:Some("F1".into()),discipline:Some("ARCH".into()),workset_id:None,can_view:true,can_edit:true,can_publish:true,deny:false};
+        let deny=Grant{deny:true,..allow.clone()};
+        assert!(!authorize(&p,&s,&[allow,deny],false,false));
     }
 }

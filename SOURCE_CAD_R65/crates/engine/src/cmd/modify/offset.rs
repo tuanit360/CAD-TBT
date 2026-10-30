@@ -216,6 +216,7 @@ fn add_offset(s: &mut Session, src: &Entity, k: EntityKind, current_layer: bool,
         common.layer = d.header.str("CLAYER", "0");
     }
     let nh = d.new_handle();
+    refresh_tbt360_bim_copy_identity(&mut common,nh);
     if let Some(st) = d.space_mut(&space) {
         st.push(Entity { handle: nh, common, kind: k });
     }

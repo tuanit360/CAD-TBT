@@ -108,13 +108,29 @@ fn convert(s: &mut Session, hs: &[Handle], o: &Txt2MtxtOptions) -> Result<(Vec<H
         line_spacing_exact: false,
         columns: None,
     };
-    let first = *first;
-    let rest: Vec<Handle> = items.iter().skip(1).map(|(h, ..)| *h).collect();
-    let d = s.doc_mut()?;
-    d.modify_entity(first, |e| e.kind = EntityKind::MText(m))?;
-    for h in rest {
-        d.remove_entity(h);
-    }
+    let first=*first;
+    let source_handles=items.iter().map(|(h,..)|*h).collect::<Vec<_>>();
+    let shared_scope={
+        let d=s.doc()?;
+        let mut key=None;
+        let mut ok=true;
+        for h in &source_handles {
+            let current=d.entity(*h).and_then(|e|crate::cmd::modify::tbt360_bim_scope_key(&e.common));
+            match (&key,current) {
+                (None,Some(k))=>key=Some(k),
+                (Some(expected),Some(k)) if expected==&k=>{}
+                _=>{ok=false;break;}
+            }
+        }
+        ok && key.is_some()
+    };
+    let rest:Vec<Handle>=source_handles.iter().copied().skip(1).collect();
+    let d=s.doc_mut()?;
+    d.modify_entity(first,|e|{
+        e.kind=EntityKind::MText(m);
+        if !shared_scope { crate::cmd::modify::strip_tbt360_bim(&mut e.common); }
+    })?;
+    for h in rest { d.remove_entity(h); }
     Ok((vec![first], locked))
 }
 

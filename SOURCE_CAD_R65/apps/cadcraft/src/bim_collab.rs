@@ -2013,6 +2013,35 @@ mod tests {
     }
 
     #[test]
+    fn bim_workspace_rejects_bad_version_duplicate_floor_and_invalid_view_floor() {
+        let mut bad_version=State::default().snapshot_json();
+        bad_version["version"]=serde_json::json!(99);
+        assert!(State::default().load_snapshot_json(&bad_version).is_err());
+
+        let mut duplicate=State::default().snapshot_json();
+        duplicate["floors"]=serde_json::json!([
+            {"id":1,"name":"Tầng 1","elevation_m":0.0,"height_m":3.6},
+            {"id":1,"name":"Tầng 2","elevation_m":3.6,"height_m":3.6}
+        ]);
+        assert!(State::default().load_snapshot_json(&duplicate).is_err());
+
+        let mut invalid_view=State::default().snapshot_json();
+        invalid_view["views"][0]["floor_id"]=serde_json::json!(999);
+        assert!(State::default().load_snapshot_json(&invalid_view).is_err());
+    }
+
+    #[test]
+    fn bim_workspace_rejects_invalid_floor_height_and_active_floor() {
+        let mut invalid_height=State::default().snapshot_json();
+        invalid_height["floors"][0]["height_m"]=serde_json::json!(0.0);
+        assert!(State::default().load_snapshot_json(&invalid_height).is_err());
+
+        let mut invalid_active=State::default().snapshot_json();
+        invalid_active["active_floor_id"]=serde_json::json!(999);
+        assert!(State::default().load_snapshot_json(&invalid_active).is_err());
+    }
+
+    #[test]
     fn bim_workspace_snapshot_restores_views_permissions_progress_and_issues() {
         let mut state = State::default();
         state.views[1].floor_id = 2;

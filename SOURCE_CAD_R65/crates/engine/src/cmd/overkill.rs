@@ -225,8 +225,11 @@ fn overkill(s: &mut Session, hs: Option<Vec<Handle>>, o: &Opts) -> Result<Report
     for (i, c) in cands.iter().enumerate() {
         if gone.get(i).copied().unwrap_or(false) {
             d.remove_entity(c.e.handle);
-        } else if let Some(k) = changed.remove(&i) {
-            d.modify_entity(c.e.handle, |e| e.kind = k)?;
+        } else if let Some(k)=changed.remove(&i) {
+            d.modify_entity(c.e.handle,|e|{
+                e.kind=k;
+                crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,c.e.handle);
+            })?;
         }
     }
     Ok(rep)

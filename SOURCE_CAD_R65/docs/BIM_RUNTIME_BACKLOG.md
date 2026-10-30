@@ -29,15 +29,25 @@ These no longer need per-command revision patches when they edit an entity in pl
 
 ## Still needs explicit source-scope policy
 
-These create new entities and therefore runtime cannot infer which source BIM scope should be inherited:
-- QDIM / DIMCONTINUE / DIMBASELINE / derived dimension creation from picked BIM geometry.
-- CENTERMARK / CENTERLINE from source geometry.
+These create new entities and therefore runtime cannot infer which source BIM scope should be inherited.
+
+Shared helper now implemented: inherit scope only when every source has the same TBT360_BIM scope; otherwise leave the derived object unscoped.
+
+Covered by the shared helper:
+- CENTERMARK / CENTERLINE.
+- DIVIDE / MEASURE markers.
+- DIMCONTINUE / DIMBASELINE from the previous BIM dimension.
+- CIRCLE TTR / TTT JSON paths.
+- WIPEOUT from a source polyline.
+
+Still needs the same helper wired in:
+- QDIM and other derived dimension creation from picked BIM geometry.
 - MLEADER/LEADER creation when explicitly attached to BIM geometry.
-- DIVIDE / MEASURE when inserting points/blocks along a BIM source.
-- TANCIRCLE / derived construction geometry if product policy says it should inherit source scope.
-- BREAKLINE / WIPEOUT-from-polyline / REGION-from-boundary and similar derived geometry.
-- TXT2MTXT when many source text objects merge into one output.
-- BURST/EXPLODE variants where multiple source scopes can contribute to one result.
+- BREAKLINE and other derived construction objects.
+- REGION-from-boundary where a new handle is created rather than an in-place boolean.
+- TANCIRCLE interactive path.
+- TXT2MTXT multi-source merge policy when the surviving first handle has a different scope from the removed texts.
+- BURST/EXPLODE only for true multi-source merge cases; ordinary exploded pieces are already covered.
 - GROUP copy does not create entities and needs no BIM identity work.
 
 ## Import/remap policy now centralized

@@ -3,7 +3,7 @@ use super::*;
 /// Remove stale or non-editable hot grips before passing them to the engine.
 /// Visibility can change after a Shift-click (Hide/Isolate/layer state), and
 /// selection can outlive entities after Undo/Delete/Reopen.
-fn usable_hot_grips(app: &CadApp, grips: &[(Handle, usize)]) -> Vec<(Handle, usize)> {
+pub(super) fn usable_hot_grips(app: &CadApp, grips: &[(Handle, usize)]) -> Vec<(Handle, usize)> {
     let Ok(st) = app.session.state() else { return Vec::new() };
     let selected = app.session.selection();
     let mut unique = std::collections::HashSet::new();

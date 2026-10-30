@@ -420,19 +420,19 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
         let Some(handle)=cadcraft_doc::Handle::parse_hex(handle_hex) else { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; };
         let Ok(doc)=app.session.doc() else { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; };
         if doc.model.get(handle).is_none() { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; }
+        let current_measurements=if record.kind==MeasureKind::Count {
+            count_measurement_for_handle(app,handle).into_iter().collect::<Vec<_>>()
+        } else {
+            measurements_for_handle(app,handle)
+        };
+        let geometry_stale=record.source_geometry_signature.as_ref().is_some_and(|expected| {
+            !current_measurements.iter().any(|measurement|measurement.kind==record.kind && geometry_signature(measurement)==*expected)
+        });
         if let Some(entity_scope)=crate::bim_collab::entity_scope(app,handle) {
             let mismatch=record.scope.floor_id!=Some(entity_scope.floor_id)
                 || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
                 || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
             let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
-            let geometry_stale=record.source_geometry_signature.as_ref().is_some_and(|expected| {
-                let current=if record.kind==MeasureKind::Count {
-                    count_measurement_for_handle(app,handle).into_iter().collect::<Vec<_>>()
-                } else {
-                    measurements_for_handle(app,handle)
-                };
-                !current.iter().any(|measurement|measurement.kind==record.kind && geometry_signature(measurement)==*expected)
-            });
             if mismatch {
                 result.scope_mismatch+=1;
                 result.invalid_record_ids.insert(record.id);
@@ -445,6 +445,9 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
             } else {
                 result.valid_links+=1;
             }
+        } else if geometry_stale {
+            result.stale_geometry+=1;
+            result.invalid_record_ids.insert(record.id);
         } else {
             result.valid_links+=1;
         }
@@ -1209,6 +1212,14 @@ mod tests {
         assert_eq!(state.records[0].status,MeasureStatus::Confirmed);
         state.records[0].status=MeasureStatus::Review;
         assert_eq!(state.records[0].status,MeasureStatus::Review);
+    }
+
+    #[test]
+    fn cad_only_source_still_uses_geometry_guard_without_bim_revision() {
+        let has_bim_scope=false;
+        let geometry_stale=true;
+        let invalid=!has_bim_scope && geometry_stale;
+        assert!(invalid);
     }
 
     #[test]

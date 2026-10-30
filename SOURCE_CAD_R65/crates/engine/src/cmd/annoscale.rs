@@ -110,7 +110,8 @@ fn add_scale(d: &mut Drawing, h: Handle, sc: &AnnoScale) -> bool {
     let _ = d.modify_entity(h, |e| {
         if is_annotative(e) && !e.common.supports_scale(&sc.name) && e.common.anno_scales.len() < MAX_SCALES {
             e.common.anno_scales.push(sc.clone());
-            changed = true;
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
+            changed=true;
         }
     });
     changed
@@ -135,8 +136,9 @@ fn remove_scale(d: &mut Drawing, h: Handle, name: &str) -> Removed {
             r = Removed::Last;
             return;
         }
-        e.common.anno_scales.retain(|s| !s.name.eq_ignore_ascii_case(name));
-        r = Removed::Yes;
+        e.common.anno_scales.retain(|s|!s.name.eq_ignore_ascii_case(name));
+        crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h);
+        r=Removed::Yes;
     });
     r
 }
@@ -237,7 +239,10 @@ fn run_annoupdate(s: &mut Session, p: &Value) -> Result<Value> {
         .collect();
     let d = s.doc_mut()?;
     for (h, want) in &plan {
-        d.modify_entity(*h, |e| cadcraft_doc::set_annotative(e, *want, &cur))?;
+        d.modify_entity(*h,|e|{
+            cadcraft_doc::set_annotative(e,*want,&cur);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
+        })?;
     }
     Ok(json!({ "updated": plan.len(), "message": format!("{} object(s) updated", plan.len()) }))
 }

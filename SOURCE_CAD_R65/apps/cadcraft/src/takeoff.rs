@@ -354,20 +354,21 @@ struct SourceValidation {
     missing_source: usize,
     scope_mismatch: usize,
     valid_links: usize,
+    invalid_record_ids: std::collections::BTreeSet<u64>,
 }
 
 fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
     let mut result=SourceValidation::default();
     for record in &state.records {
         let Some(handle_hex)=record.source_handle.as_deref() else { continue; };
-        let Some(handle)=cadcraft_doc::Handle::parse_hex(handle_hex) else { result.missing_source+=1; continue; };
-        let Ok(doc)=app.session.doc() else { result.missing_source+=1; continue; };
-        if doc.model.get(handle).is_none() { result.missing_source+=1; continue; }
+        let Some(handle)=cadcraft_doc::Handle::parse_hex(handle_hex) else { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; };
+        let Ok(doc)=app.session.doc() else { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; };
+        if doc.model.get(handle).is_none() { result.missing_source+=1; result.invalid_record_ids.insert(record.id); continue; }
         if let Some(entity_scope)=crate::bim_collab::entity_scope(app,handle) {
             let mismatch=record.scope.floor_id!=Some(entity_scope.floor_id)
                 || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
                 || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
-            if mismatch { result.scope_mismatch+=1; } else { result.valid_links+=1; }
+            if mismatch { result.scope_mismatch+=1; result.invalid_record_ids.insert(record.id); } else { result.valid_links+=1; }
         } else {
             result.valid_links+=1;
         }
@@ -387,6 +388,10 @@ struct BusinessQuantity {
 }
 
 fn scoped_business_quantities(state: &State, length_factor: f64, area_factor: f64) -> BTreeMap<(Option<u64>, String, String, String, String), BusinessQuantity> {
+    scoped_business_quantities_validated(state,length_factor,area_factor,&std::collections::BTreeSet::new())
+}
+
+fn scoped_business_quantities_validated(state: &State, length_factor: f64, area_factor: f64, invalid_record_ids:&std::collections::BTreeSet<u64>) -> BTreeMap<(Option<u64>, String, String, String, String), BusinessQuantity> {
     let mut groups=BTreeMap::new();
     for record in &state.records {
         let discipline=record.scope.discipline.clone().unwrap_or_else(||"(Không scope)".into());
@@ -398,6 +403,7 @@ fn scoped_business_quantities(state: &State, length_factor: f64, area_factor: f6
             MeasureStatus::Review=>q.review_records+=1,
             MeasureStatus::Excluded=>q.excluded_records+=1,
             MeasureStatus::Confirmed=>{
+                if invalid_record_ids.contains(&record.id) { continue; }
                 q.confirmed_records+=1;
                 match record.kind {
                     MeasureKind::Length=>q.length+=record.raw_value*length_factor,
@@ -842,7 +848,11 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
 
     ui.separator();
     ui.strong("Tổng hợp theo BIM Scope");
-    let scoped_groups=scoped_business_quantities(state,lf,af);
+    if !source_validation.invalid_record_ids.is_empty() {
+        ui.colored_label(egui::Color32::YELLOW,format!("{} record liên kết nguồn không hợp lệ đang bị loại khỏi khối lượng BIM xác nhận.",source_validation.invalid_record_ids.len()));
+    }
+    
+    let scoped_groups=scoped_business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);
     egui::ScrollArea::horizontal().show(ui,|ui|{
         egui::Grid::new("native_qto_bim_scope_summary").striped(true).show(ui,|ui|{
             for h in ["Tầng","Bộ môn","Owner","Nhóm","Mã CT","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
@@ -1062,6 +1072,19 @@ mod tests {
         let mut state=State::default();
         let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
+    }
+
+    #[test]
+    fn validated_scope_summary_excludes_invalid_confirmed_record() {
+        let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
+        let scope=Scope{floor_id:Some(1),discipline:Some("ARCH".into()),owner_account_id:Some("u1".into())};
+        let id=state.add_measurement_scoped(MeasureKind::Count,Vec::new(),5.0,"DEVICE".into(),&scope).unwrap();
+        assert!(state.set_status(id,MeasureStatus::Confirmed));
+        let invalid=std::collections::BTreeSet::from([id]);
+        let groups=scoped_business_quantities_validated(&state,1.0,1.0,&invalid);
+        let q=groups.values().next().unwrap();
+        assert_eq!(q.confirmed_records,0);
+        assert_eq!(q.count,0.0);
     }
 
     #[test]

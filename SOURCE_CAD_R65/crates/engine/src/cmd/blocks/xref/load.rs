@@ -403,7 +403,14 @@ fn import(d: &mut Drawing, key: &str, x: &Drawing, cx: &mut Ctx) -> Result<(), S
     let adopt=|d:&mut Drawing,e:&Entity| {
         let mut e=e.clone();
         e.handle=d.new_handle();
-        crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
+        // XREF load/remap preserves source revision; ordinary COPY starts a new revision.
+        for pair in e.common.xdata.chunks_exact_mut(2) {
+            if pair[0].code == 1001 && pair[0].value.eq_ignore_ascii_case("TBT360_BIM") && pair[1].code == 1000 {
+                let mut fields: Vec<String> = pair[1].value.split(';').filter(|part| !part.starts_with("entity=")).map(str::to_string).collect();
+                fields.push(format!("entity={}", e.handle.hex()));
+                pair[1].value = fields.join(";");
+            }
+        }
         rename_refs(&mut e,&dep);
         if let EntityKind::Dimension(dm)=&mut e.kind { dm.assoc.clear(); }
         e

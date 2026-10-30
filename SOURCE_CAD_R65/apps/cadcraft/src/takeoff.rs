@@ -171,6 +171,49 @@ impl State {
         Ok(id)
     }
 
+    fn relink_missing_source(&mut self, app:&CadApp, id:u64) -> Result<bool,String> {
+        let index=self.records.iter().position(|r|r.id==id).ok_or_else(||"Không tìm thấy record QTO".to_string())?;
+        let record=self.records[index].clone();
+        let expected=record.source_geometry_signature.clone().ok_or_else(||"Record chưa có geometry signature để relink".to_string())?;
+        let doc=app.session.doc().map_err(|e|e.to_string())?;
+        let mut candidates=Vec::new();
+        for handle in doc.model.handles() {
+            let measurements=if record.kind==MeasureKind::Count {
+                count_measurement_for_handle(app,handle).into_iter().collect::<Vec<_>>()
+            } else {
+                measurements_for_handle(app,handle)
+            };
+            if !measurements.iter().any(|m|m.kind==record.kind && geometry_signature(m)==expected) { continue; }
+            if let Some(scope)=crate::bim_collab::entity_scope(app,handle) {
+                if record.scope.floor_id!=Some(scope.floor_id)
+                    || record.scope.discipline.as_deref()!=Some(scope.discipline.as_str())
+                    || record.scope.owner_account_id.as_deref()!=Some(scope.owner_account_id.as_str()) { continue; }
+            } else if record.scope.floor_id.is_some() || record.scope.discipline.is_some() || record.scope.owner_account_id.is_some() {
+                continue;
+            }
+            candidates.push(handle);
+            if candidates.len()>1 { break; }
+        }
+        if candidates.len()!=1 { return Ok(false); }
+        let handle=candidates[0];
+        let source_scope=crate::bim_collab::entity_scope(app,handle);
+        let revision=source_scope.as_ref().map(|x|x.revision);
+        self.snapshot();
+        self.records[index].source_handle=Some(handle.hex());
+        self.records[index].source_revision=revision;
+        self.audit_change(id,"RELINK_SOURCE",record.source_handle,Some(handle.hex()));
+        Ok(true)
+    }
+
+    fn relink_all_missing_sources(&mut self, app:&CadApp) -> usize {
+        let ids=self.records.iter().filter_map(|r|{
+            let h=r.source_handle.as_deref().and_then(cadcraft_doc::Handle::parse_hex)?;
+            let missing=app.session.doc().ok().is_none_or(|d|d.model.get(h).is_none());
+            missing.then_some(r.id)
+        }).collect::<Vec<_>>();
+        ids.into_iter().filter(|id|self.relink_missing_source(app,*id).ok()==Some(true)).count()
+    }
+
     fn refresh_from_source(&mut self, app:&CadApp, id:u64) -> Result<(),String> {
         let index=self.records.iter().position(|r|r.id==id).ok_or_else(||"Không tìm thấy record QTO".to_string())?;
         let handle_hex=self.records[index].source_handle.clone().ok_or_else(||"Record không có source_handle".to_string())?;
@@ -854,6 +897,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry.",
             source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry
         ));
+        if source_validation.missing_source>0 && ui.button("Tự relink nguồn bị mất (chỉ khi khớp duy nhất)").clicked() {
+            let relinked=state.relink_all_missing_sources(app);
+            if relinked>0 { ui.label(format!("Đã relink {} record.",relinked)); }
+        }
     } else if source_validation.valid_links>0 {
         ui.label(format!("Liên kết nguồn QTO hợp lệ: {} record.",source_validation.valid_links));
     }
@@ -1176,6 +1223,16 @@ mod tests {
         let mut state=State::default();
         let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
+    }
+
+    #[test]
+    fn relink_policy_requires_a_unique_candidate() {
+        let candidates0:Vec<cadcraft_doc::Handle>=Vec::new();
+        let candidates1=vec![cadcraft_doc::Handle(1)];
+        let candidates2=vec![cadcraft_doc::Handle(1),cadcraft_doc::Handle(2)];
+        assert_ne!(candidates0.len(),1);
+        assert_eq!(candidates1.len(),1);
+        assert_ne!(candidates2.len(),1);
     }
 
     #[test]

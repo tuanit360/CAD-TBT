@@ -64,6 +64,7 @@ struct MeasurementRecord {
     scope: Scope,
     source_handle: Option<String>,
     source_revision: Option<u64>,
+    source_geometry_signature: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -135,7 +136,7 @@ impl State {
         self.next_record_id += 1;
         let record = MeasurementRecord {
             id, kind, points, raw_value, layer, work_group: String::new(), work_code: String::new(),
-            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None, source_revision: None,
+            description: String::new(), note: String::new(), status: MeasureStatus::Review, scope: Scope::default(), source_handle: None, source_revision: None, source_geometry_signature: None,
         };
         self.records.push(record.clone());
         self.audit_change(id, "CREATE", None, Some(format!("{:?}:{:.6}", record.kind, record.raw_value)));
@@ -158,13 +159,15 @@ impl State {
     }
 
     fn add_measurement_from_entity(&mut self, measurement: PendingMeasurement, scope: &Scope, source_revision: Option<u64>) -> Result<u64, String> {
-        let id=self.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,scope)?;
         let source_handle=measurement.source_handle.hex();
+        let source_geometry_signature=geometry_signature(&measurement);
+        let id=self.add_measurement_scoped(measurement.kind,measurement.points,measurement.raw_value,measurement.layer,scope)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
             record.source_handle=Some(source_handle.clone());
             record.source_revision=source_revision;
+            record.source_geometry_signature=Some(source_geometry_signature.clone());
         }
-        self.audit_change(id,"SOURCE_HANDLE",None,Some(format!("{}@{:?}",source_handle,source_revision)));
+        self.audit_change(id,"SOURCE_HANDLE",None,Some(format!("{}@{:?}|{}",source_handle,source_revision,source_geometry_signature)));
         Ok(id)
     }
 
@@ -232,7 +235,8 @@ impl State {
                 "owner_account_id": record.scope.owner_account_id
             },
             "source_handle": record.source_handle,
-            "source_revision": record.source_revision
+            "source_revision": record.source_revision,
+            "source_geometry_signature": record.source_geometry_signature
         })
     }
 
@@ -295,6 +299,7 @@ impl State {
             let source_handle=item.get("source_handle").and_then(serde_json::Value::as_str).map(str::to_string);
             if source_handle.as_deref().is_some_and(|h|cadcraft_doc::Handle::parse_hex(h).is_none()) { return Err("Measurement source_handle không hợp lệ".into()); }
             let source_revision=item.get("source_revision").and_then(serde_json::Value::as_u64);
+            let source_geometry_signature=item.get("source_geometry_signature").and_then(serde_json::Value::as_str).map(str::to_string);
             records.push(MeasurementRecord {
                 id, kind, points, raw_value,
                 layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
@@ -306,6 +311,7 @@ impl State {
                 scope: Scope{floor_id,discipline,owner_account_id},
                 source_handle,
                 source_revision,
+                source_geometry_signature,
             });
         }
         let mut audit = Vec::new();
@@ -346,6 +352,14 @@ struct PendingMeasurement {
     source_handle: cadcraft_doc::Handle,
 }
 
+fn geometry_signature(measurement:&PendingMeasurement)->String {
+    let mut out=format!("{}|{}|{:.12}|",measurement.kind.code(),measurement.layer,measurement.raw_value);
+    for point in &measurement.points {
+        out.push_str(&format!("{:.12},{:.12};",point[0],point[1]));
+    }
+    out
+}
+
 fn scope_from_entity_or_active(app:&CadApp, handle:cadcraft_doc::Handle, active_scope:&Scope)->(Scope,Option<u64>) {
     crate::bim_collab::entity_scope(app,handle).map(|scope|(Scope {
         floor_id:Some(scope.floor_id),
@@ -359,6 +373,7 @@ struct SourceValidation {
     missing_source: usize,
     scope_mismatch: usize,
     stale_revision: usize,
+    stale_geometry: usize,
     valid_links: usize,
     invalid_record_ids: std::collections::BTreeSet<u64>,
 }
@@ -375,11 +390,17 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
                 || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
                 || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
             let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
+            let geometry_stale=record.source_geometry_signature.as_ref().is_some_and(|expected| {
+                !measurements_for_handle(app,handle).iter().any(|measurement|measurement.kind==record.kind && geometry_signature(measurement)==*expected)
+            });
             if mismatch {
                 result.scope_mismatch+=1;
                 result.invalid_record_ids.insert(record.id);
             } else if stale {
                 result.stale_revision+=1;
+                result.invalid_record_ids.insert(record.id);
+            } else if geometry_stale {
+                result.stale_geometry+=1;
                 result.invalid_record_ids.insert(record.id);
             } else {
                 result.valid_links+=1;
@@ -575,14 +596,12 @@ fn lwpoly_metrics(vertices: &[cadcraft_doc::geom::PolyVertex], closed: bool) -> 
     }
 }
 
-fn selected_measurements(app: &CadApp) -> Vec<PendingMeasurement> {
-    let selected = app.session.selection();
-    let Ok(drawing) = app.session.doc() else { return Vec::new(); };
-    let mut out = Vec::new();
-    for handle in selected {
-        let Some(entity) = drawing.model.get(handle) else { continue; };
-        let layer = entity.common.layer.clone();
-        match &entity.kind {
+fn measurements_for_handle(app:&CadApp, handle:cadcraft_doc::Handle)->Vec<PendingMeasurement> {
+    let Ok(drawing)=app.session.doc() else { return Vec::new(); };
+    let Some(entity)=drawing.model.get(handle) else { return Vec::new(); };
+    let layer=entity.common.layer.clone();
+    let mut out=Vec::new();
+    match &entity.kind {
             EntityKind::Line(line) => {
                 let value = (line.b.x-line.a.x).hypot(line.b.y-line.a.y).hypot(line.b.z-line.a.z);
                 if value.is_finite() {
@@ -621,6 +640,15 @@ fn selected_measurements(app: &CadApp) -> Vec<PendingMeasurement> {
             }
             _ => {}
         }
+    }
+    out
+}
+
+fn selected_measurements(app:&CadApp)->Vec<PendingMeasurement> {
+    let selected=app.session.selection();
+    let mut out=Vec::new();
+    for handle in selected {
+        out.extend(measurements_for_handle(app,handle));
     }
     out
 }
@@ -769,8 +797,8 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let source_validation=validate_sources(app,state);
     if source_validation.missing_source>0 || source_validation.scope_mismatch>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
-            "Liên kết nguồn QTO cần kiểm tra: {} mất entity nguồn, {} lệch BIM scope, {} đã thay đổi hình học/revision.",
-            source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision
+            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry.",
+            source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry
         ));
     } else if source_validation.valid_links>0 {
         ui.label(format!("Liên kết nguồn QTO hợp lệ: {} record.",source_validation.valid_links));
@@ -1103,6 +1131,15 @@ mod tests {
     }
 
     #[test]
+    fn geometry_signature_changes_when_geometry_moves_or_scales() {
+        let base=PendingMeasurement{kind:MeasureKind::Length,points:vec![[0.0,0.0],[10.0,0.0]],raw_value:10.0,layer:"A".into(),source_handle:cadcraft_doc::Handle(1)};
+        let moved=PendingMeasurement{kind:MeasureKind::Length,points:vec![[5.0,0.0],[15.0,0.0]],raw_value:10.0,layer:"A".into(),source_handle:cadcraft_doc::Handle(1)};
+        let scaled=PendingMeasurement{kind:MeasureKind::Length,points:vec![[0.0,0.0],[20.0,0.0]],raw_value:20.0,layer:"A".into(),source_handle:cadcraft_doc::Handle(1)};
+        assert_ne!(geometry_signature(&base),geometry_signature(&moved));
+        assert_ne!(geometry_signature(&base),geometry_signature(&scaled));
+    }
+
+    #[test]
     fn qto_v3_roundtrip_preserves_source_revision() {
         let mut state=State::default();
         let scope=Scope{floor_id:Some(1),discipline:Some("ARCH".into()),owner_account_id:Some("u1".into())};
@@ -1120,6 +1157,7 @@ mod tests {
         assert_eq!(validation.missing_source,0);
         assert_eq!(validation.scope_mismatch,0);
         assert_eq!(validation.stale_revision,0);
+        assert_eq!(validation.stale_geometry,0);
         assert_eq!(validation.valid_links,0);
     }
 

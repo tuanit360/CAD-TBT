@@ -214,14 +214,19 @@ pub(super) fn stretch_grips(s: &mut Session, hot: &[(Handle, usize)], others: &[
     let mut out = Vec::new();
     for (h, k) in edits {
         if copy {
-            let (Some(sp), Some(e)) = (d.space_of(h), d.entity(h).map(|e| (**e).clone())) else { continue };
-            let nh = d.new_handle();
-            if let Some(st) = d.space_mut(&sp) {
-                st.push(Entity { handle: nh, kind: k, ..e });
+            let (Some(sp),Some(e))=(d.space_of(h),d.entity(h).map(|e|(**e).clone())) else { continue };
+            let nh=d.new_handle();
+            let mut ne=Entity{handle:nh,kind:k,..e};
+            super::modify::refresh_tbt360_bim_copy_identity(&mut ne.common,nh);
+            if let Some(st)=d.space_mut(&sp) {
+                st.push(ne);
                 out.push(nh);
             }
         } else {
-            d.modify_entity(h, |e| e.kind = k)?;
+            d.modify_entity(h,|e|{
+                e.kind=k;
+                super::modify::bump_tbt360_bim_revision(&mut e.common,h);
+            })?;
             out.push(h);
         }
     }

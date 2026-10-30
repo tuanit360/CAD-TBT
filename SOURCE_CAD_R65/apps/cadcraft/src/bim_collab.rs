@@ -204,6 +204,19 @@ pub struct AccessRule {
     pub can_edit: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct ShareGrant {
+    /// The account allowed to see/edit another account's design scope.
+    pub viewer_account_id: String,
+    /// Owner of the shared design objects.
+    pub owner_account_id: String,
+    pub floor_id: Option<u64>,
+    pub discipline: Option<Discipline>,
+    pub can_view: bool,
+    pub can_edit: bool,
+}
+
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
@@ -419,6 +432,7 @@ pub struct State {
     pub conflicts: Vec<SyncConflict>,
     pub auth: AuthSession,
     pub access_rules: Vec<AccessRule>,
+    pub share_grants: Vec<ShareGrant>,
     pub progress: Vec<ScopeProgress>,
     pub issues: Vec<CoordinationIssue>,
     pub coordination_candidates: Vec<CoordinationCandidate>,
@@ -476,6 +490,11 @@ impl Default for State {
                 AccessRule { account_id: "struct-01".into(), floor_id: None, discipline: Some(Discipline::Structure), can_view: true, can_edit: true },
                 AccessRule { account_id: "mep-elec-01".into(), floor_id: None, discipline: Some(Discipline::Electrical), can_view: true, can_edit: true },
                 AccessRule { account_id: "mep-water-01".into(), floor_id: None, discipline: Some(Discipline::Plumbing), can_view: true, can_edit: true },
+            ],
+            share_grants: vec![
+                ShareGrant { viewer_account_id: "local-owner".into(), owner_account_id: "struct-01".into(), floor_id: None, discipline: Some(Discipline::Structure), can_view: true, can_edit: false },
+                ShareGrant { viewer_account_id: "local-owner".into(), owner_account_id: "mep-elec-01".into(), floor_id: None, discipline: Some(Discipline::Electrical), can_view: true, can_edit: false },
+                ShareGrant { viewer_account_id: "local-owner".into(), owner_account_id: "mep-water-01".into(), floor_id: None, discipline: Some(Discipline::Plumbing), can_view: true, can_edit: false },
             ],
             progress: vec![
                 ScopeProgress { floor_id: 1, discipline: Discipline::Architecture, percent: 20, status: ScopeStatus::InProgress, updated_by: "local-owner".into() },
@@ -698,6 +717,14 @@ impl State {
             "can_view": r.can_view,
             "can_edit": r.can_edit
         })).collect::<Vec<_>>();
+        let share_grants = self.share_grants.iter().map(|g| serde_json::json!({
+            "viewer_account_id": g.viewer_account_id,
+            "owner_account_id": g.owner_account_id,
+            "floor_id": g.floor_id,
+            "discipline": g.discipline.map(Discipline::label),
+            "can_view": g.can_view,
+            "can_edit": g.can_edit
+        })).collect::<Vec<_>>();
         let progress = self.progress.iter().map(|p| serde_json::json!({
             "floor_id": p.floor_id,
             "discipline": p.discipline.label(),
@@ -729,6 +756,7 @@ impl State {
             "floors": floors,
             "views": views,
             "access_rules": access_rules,
+            "share_grants": share_grants,
             "active_floor_id": self.active_floor_id,
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
@@ -784,6 +812,18 @@ impl State {
             self.access_rules = items.iter().filter_map(|item| {
                 Some(AccessRule {
                     account_id: item.get("account_id")?.as_str()?.to_string(),
+                    floor_id: item.get("floor_id").and_then(serde_json::Value::as_u64),
+                    discipline: item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label),
+                    can_view: item.get("can_view").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    can_edit: item.get("can_edit").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                })
+            }).collect();
+        }
+        if let Some(items) = value.get("share_grants").and_then(serde_json::Value::as_array) {
+            self.share_grants = items.iter().filter_map(|item| {
+                Some(ShareGrant {
+                    viewer_account_id: item.get("viewer_account_id")?.as_str()?.to_string(),
+                    owner_account_id: item.get("owner_account_id")?.as_str()?.to_string(),
                     floor_id: item.get("floor_id").and_then(serde_json::Value::as_u64),
                     discipline: item.get("discipline").and_then(serde_json::Value::as_str).and_then(Discipline::from_label),
                     can_view: item.get("can_view").and_then(serde_json::Value::as_bool).unwrap_or(false),
@@ -869,6 +909,19 @@ impl State {
         })
     }
 
+    fn has_share_access(&self, viewer: &str, owner: &str, floor_id: u64, discipline: Discipline, edit: bool) -> bool {
+        if viewer == owner {
+            return self.has_scope_access(viewer, floor_id, discipline, edit);
+        }
+        self.share_grants.iter().any(|grant| {
+            grant.viewer_account_id == viewer
+                && grant.owner_account_id == owner
+                && grant.floor_id.is_none_or(|f| f == floor_id)
+                && grant.discipline.is_none_or(|d| d == discipline)
+                && if edit { grant.can_edit } else { grant.can_view }
+        })
+    }
+
     fn acquire_lease(&mut self, handle: cadcraft_doc::Handle, revision: u64) -> Result<(), String> {
         if let Some(existing) = self.leases.iter().find(|l| l.handle == handle) {
             if existing.account_id != self.current_account_id {
@@ -912,7 +965,9 @@ impl State {
         }
         let broad = (me.can_view_other_disciplines || target.discipline == me.discipline)
             && (target_floor == active_floor || me.can_view_other_floors);
-        broad && self.has_scope_access(&me.account_id, target_floor, target.discipline, false)
+        broad
+            && self.has_scope_access(&me.account_id, target_floor, target.discipline, false)
+            && self.has_share_access(&me.account_id, &target.account_id, target_floor, target.discipline, false)
     }
 
     fn viewport_entity_count(&self, app: &cadcraft_ui_egui::CadApp, slot: &ViewSlot) -> usize {
@@ -1346,6 +1401,21 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
         });
     });
 
+    ui.collapsing("Chia sẻ thiết kế: ai được xem của ai", |ui| {
+        egui::Grid::new("bim_share_grants").striped(true).show(ui, |ui| {
+            ui.strong("Người xem"); ui.strong("Chủ dữ liệu"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
+            for grant in &mut state.share_grants {
+                ui.label(&grant.viewer_account_id);
+                ui.label(&grant.owner_account_id);
+                ui.label(grant.floor_id.and_then(|id| state.floors.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_else(|| "Tất cả".into()));
+                ui.label(grant.discipline.map(Discipline::label).unwrap_or("Tất cả"));
+                ui.checkbox(&mut grant.can_view, "");
+                ui.checkbox(&mut grant.can_edit, "");
+                ui.end_row();
+            }
+        });
+    });
+
     ui.collapsing("Rule quyền chi tiết theo tầng / bộ môn", |ui| {
         egui::Grid::new("bim_scope_rules").striped(true).show(ui, |ui| {
             ui.strong("Tài khoản"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
@@ -1515,6 +1585,14 @@ mod tests {
         assert_eq!(state.issues[0].floor_id, 2);
         assert_eq!(state.issues[0].source_discipline, Discipline::Architecture);
         assert_eq!(state.issues[0].target_discipline, Discipline::Structure);
+    }
+
+    #[test]
+    fn share_grant_controls_who_can_view_whose_discipline() {
+        let state = State::default();
+        assert!(state.has_share_access("local-owner", "struct-01", 1, Discipline::Structure, false));
+        assert!(!state.has_share_access("local-owner", "struct-01", 1, Discipline::Structure, true));
+        assert!(!state.has_share_access("mep-elec-01", "struct-01", 1, Discipline::Structure, false));
     }
 
     #[test]

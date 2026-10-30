@@ -134,7 +134,8 @@ pub(crate) fn run_arraypath_refresh(s: &mut Session, p: &Value) -> Result<Value>
     let (points, rotations) = sampled_path(&chain, path_array.points.len(), path_array.align)?;
     let mut refreshed = params;
     refreshed.kind = ArrayKind::Path(PathArray { path: path_array.path, points, rotations, align: path_array.align });
-    crate::cmd::array::rebuild(s, h, refreshed, None)?;
+    crate::cmd::array::rebuild(s,h,refreshed,None)?;
+    s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     Ok(json!({ "handle": h.hex(), "path": path_array.path.hex(), "itemCount": path_array.points.len(), "refreshed": true }))
 }
 

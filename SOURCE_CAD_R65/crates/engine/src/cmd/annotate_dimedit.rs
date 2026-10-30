@@ -312,12 +312,16 @@ fn run_jogged(s: &mut Session, p: &Value) -> Result<Value> {
     let at = point_req("dimjogged", p, "at")?;
     let k = jogged_kind(s, c, r, center, at, point_param(p, "jog"), str_param(p, "text").unwrap_or(""))
         .ok_or_else(|| bad("dimjogged", "`at` must differ from the centre"))?;
-    Ok(json!({ "handle": add_dim(s, k)?.hex() }))
+    let nh=add_dim(s,k)?;
+    if let Some(source)=s.doc()?.entity(h).map(|e|e.common.clone()) {
+        s.doc_mut()?.modify_entity(nh,|e|crate::cmd::modify::copy_tbt360_bim_scope(&source,&mut e.common,nh))?;
+    }
+    Ok(json!({ "handle": nh.hex() }))
 }
 
 #[derive(Default)]
 struct JoggedM {
-    circle: Option<(Vec2, f64)>,
+    circle: Option<(Handle, Vec2, f64)>,
     center: Option<Vec2>,
     at: Option<Vec2>,
     text: DimText,
@@ -333,7 +337,7 @@ impl Interactive for JoggedM {
         }
         match (self.circle, self.center, self.at) {
             (None, ..) => Prompt::new("Select arc or circle", Accept::POINT),
-            (Some((c, _)), None, _) => Prompt::new("Specify center location override", Accept::POINT).base(c),
+            (Some((_,c,_)),None,_)=>Prompt::new("Specify center location override",Accept::POINT).base(c),
             (Some(_), Some(o), None) => Prompt::new("Specify dimension line location", Accept::POINT).kw(&["Mtext", "Text", "Angle"]).base(o),
             (Some(_), Some(o), Some(_)) => Prompt::new("Specify jog location", Accept::POINT).base(o),
         }
@@ -343,18 +347,21 @@ impl Interactive for JoggedM {
             return Ok(Step::Continue);
         }
         match (self.circle, self.center, self.at, i) {
-            (None, _, _, Input::Point(p)) => match pick_at(s, p).and_then(|h| circle_of(s, h)) {
-                Some(t) => self.circle = Some(t),
-                None => s.echo("Object selected is not a circle or arc."),
+            (None,_,_,Input::Point(p))=>match pick_at(s,p).and_then(|h|circle_of(s,h).map(|(c,r)|(h,c,r))) {
+                Some(t)=>self.circle=Some(t),
+                None=>s.echo("Object selected is not a circle or arc."),
             },
             (Some(_), None, _, Input::Point(p)) => self.center = Some(p),
             (Some(_), Some(_), None, Input::Keyword(k)) => {
                 self.text.keyword(&k);
             }
             (Some(_), Some(_), None, Input::Point(p)) => self.at = Some(p),
-            (Some((c, r)), Some(o), Some(at), Input::Point(j)) => {
-                if let Some(k) = jogged_kind(s, c, r, o, at, Some(j), "") {
-                    add_dim(s, self.text.apply(k))?;
+            (Some((src,c,r)),Some(o),Some(at),Input::Point(j))=>{
+                if let Some(k)=jogged_kind(s,c,r,o,at,Some(j),"") {
+                    let nh=add_dim(s,self.text.apply(k))?;
+                    if let Some(common)=s.doc()?.entity(src).map(|e|e.common.clone()) {
+                        s.doc_mut()?.modify_entity(nh,|e|crate::cmd::modify::copy_tbt360_bim_scope(&common,&mut e.common,nh))?;
+                    }
                 }
                 return Ok(Step::Done);
             }
@@ -364,7 +371,7 @@ impl Interactive for JoggedM {
         Ok(Step::Continue)
     }
     fn preview(&self, s: &Session, p: Vec2) -> Vec<EntityKind> {
-        let Some((c, r)) = self.circle else { return Vec::new() };
+        let Some((_,c,r))=self.circle else { return Vec::new() };
         let (o, at, jog) = match (self.center, self.at) {
             (Some(o), None) => (o, p, None),
             (Some(o), Some(at)) => (o, at, Some(p)),

@@ -462,6 +462,41 @@ mod tests {
     }
 
     #[test]
+    fn measurement_lifecycle_undo_redo_and_project_roundtrip() {
+        let mut state = State { drawing_distance: 1000.0, real_distance_m: 1.0, ..Default::default() };
+        let id = state.add_measurement(MeasureKind::Length, vec![[0.0,0.0],[2500.0,0.0]], 2500.0, "A-WALL".into()).unwrap();
+        assert_eq!(state.records.len(), 1);
+        assert_eq!(state.records[0].status, MeasureStatus::Review);
+        assert!(state.edit_metadata(id, "Tường".into(), "TT-001".into(), "Tường xây".into(), "Kiểm tra hiện trường".into()));
+        assert!(state.set_status(id, MeasureStatus::Confirmed));
+        assert_eq!(state.records[0].status, MeasureStatus::Confirmed);
+        assert!(state.undo_measurement_change());
+        assert_eq!(state.records[0].status, MeasureStatus::Review);
+        assert!(state.redo_measurement_change());
+        assert_eq!(state.records[0].status, MeasureStatus::Confirmed);
+
+        let json = state.to_json();
+        let mut reopened = State::default();
+        reopened.load_json(&json).unwrap();
+        assert_eq!(reopened.records.len(), 1);
+        assert_eq!(reopened.records[0].work_code, "TT-001");
+        assert_eq!(reopened.records[0].status, MeasureStatus::Confirmed);
+        assert!((reopened.records[0].raw_value * reopened.scale_to_m().unwrap() - 2.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn excluded_measurements_remain_in_audit_but_not_as_confirmed_quantity() {
+        let mut state = State { drawing_distance: 1.0, real_distance_m: 1.0, ..Default::default() };
+        let id = state.add_measurement(MeasureKind::Count, Vec::new(), 1.0, "DEVICE".into()).unwrap();
+        assert!(state.set_status(id, MeasureStatus::Excluded));
+        assert_eq!(state.records[0].status, MeasureStatus::Excluded);
+        assert!(state.audit.iter().any(|a| a.record_id == id && a.action == "STATUS"));
+        assert!(state.delete_measurement(id));
+        assert!(state.records.is_empty());
+        assert!(state.audit.iter().any(|a| a.record_id == id && a.action == "DELETE"));
+    }
+
+    #[test]
     fn calibration_scale_converts_length_and_area() {
         let state = State { drawing_distance: 1000.0, real_distance_m: 1.0, ..Default::default() };
         let scale = state.scale_to_m().unwrap();

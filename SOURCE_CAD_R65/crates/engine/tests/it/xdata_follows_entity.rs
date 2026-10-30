@@ -92,6 +92,51 @@ fn copies_keep_the_xdata() {
 }
 
 #[test]
+fn tbt360_bim_copies_get_independent_identity() {
+    let (mut s,l,_)=session();
+    s.doc_mut().unwrap().modify_entity(l,|e|e.common.xdata.extend([
+        RawTag{code:1001,value:"TBT360_BIM".into()},
+        RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",l.hex())},
+    ])).unwrap();
+
+    let payload=|s:&Session,h:Handle|{
+        let e=s.doc().unwrap().entity(h).unwrap();
+        let at=e.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
+        e.common.xdata.get(at+1).unwrap().value.clone()
+    };
+    let assert_copy=|s:&Session,h:Handle|{
+        let p=payload(s,h);
+        assert!(p.contains("floor=2"));
+        assert!(p.contains("discipline=ELEC"));
+        assert!(p.contains("owner=u1"));
+        assert!(p.contains("revision=1"));
+        assert!(p.contains(&format!("entity={}",h.hex())));
+    };
+
+    let before=model_handles(&s);
+    s.execute("copy",&json!({"handles":[l.hex()],"delta":[0,20]})).unwrap();
+    let copied=new_handles(&s,&before);
+    assert_eq!(copied.len(),1);
+    assert_copy(&s,copied[0]);
+
+    let before=model_handles(&s);
+    s.execute("mirror",&json!({"handles":[l.hex()],"p1":[0,-1],"p2":[10,-1]})).unwrap();
+    let mirrored=new_handles(&s,&before);
+    assert_eq!(mirrored.len(),1);
+    assert_copy(&s,mirrored[0]);
+
+    let before=model_handles(&s);
+    s.execute("arrayrect",&json!({"handles":[l.hex()],"rows":1,"cols":3,"colSpacing":20,"associative":false})).unwrap();
+    let arrayed=new_handles(&s,&before);
+    assert_eq!(arrayed.len(),2);
+    for h in arrayed { assert_copy(&s,h); }
+
+    let original=payload(&s,l);
+    assert!(original.contains("revision=7"));
+    assert!(original.contains(&format!("entity={}",l.hex())));
+}
+
+#[test]
 fn a_copy_saves_its_xdata() {
     let (mut s, l, _) = session();
     s.execute("copy", &json!({ "handles": [l.hex()], "delta": [0, 20] })).unwrap();

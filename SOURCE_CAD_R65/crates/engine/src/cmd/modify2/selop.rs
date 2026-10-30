@@ -24,8 +24,9 @@ fn reverse(s: &mut Session, hs: &[Handle]) -> Result<usize> {
         }
         let Ok(e) = curves::entity(s, *h) else { continue };
         if let Some(k) = reverse_kind(&e.kind) {
-            set_kind(s, *h, k)?;
-            n += 1;
+            set_kind(s,*h,k)?;
+            s.doc_mut()?.modify_entity(*h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h))?;
+            n+=1;
         }
     }
     Ok(n)
@@ -124,9 +125,10 @@ fn flatten(s: &mut Session, hs: &[Handle]) -> Result<usize> {
         if s.doc()?.entity(*h).is_none() {
             continue;
         }
-        s.doc_mut()?.modify_entity(*h, |e| {
+        s.doc_mut()?.modify_entity(*h,|e|{
             flatten_kind(&mut e.kind);
-            e.common.thickness = 0.0;
+            e.common.thickness=0.0;
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
         })?;
         n += 1;
     }
@@ -197,12 +199,13 @@ fn chspace(s: &mut Session, hs: &[Handle], to: Option<&str>, vp: Option<Handle>)
         if matches!(e.kind, EntityKind::Viewport(_)) {
             continue;
         }
-        let mut e = e;
+        let mut e=e;
         e.kind.transform(&m);
+        crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,*h);
         d.remove_entity(*h);
-        if let Some(st) = d.space_mut(&target) {
+        if let Some(st)=d.space_mut(&target) {
             st.push(e);
-            n += 1;
+            n+=1;
         }
     }
     s.set_selection(Vec::new());

@@ -3,6 +3,9 @@
 	About	Giới thiệu
 	About CADCraft	Giới thiệu CAD 2D - TBT 360
 	About CAD 2D - TBT 360	Giới thiệu CAD 2D - TBT 360
+	About CAD 360 Viet Nam - TBT	Giới thiệu CAD 360 Việt Nam - TBT
+	Native CAD design and drafting application written in Rust.	Ứng dụng thiết kế và triển khai bản vẽ CAD native viết bằng Rust.
+	CAD 360 Viet Nam by TBT Viet Nam, developed on the open-source CADCraft foundation while preserving the applicable license obligations.	Sản phẩm CAD 360 Việt Nam của TBT Việt Nam; phát triển trên nền mã nguồn mở CADCraft và giữ nguyên các nghĩa vụ giấy phép tương ứng.
 	All	Tất cả
 	All files	Tất cả tệp
 	Angle	Góc
@@ -33,7 +36,6 @@
 	Color Index	Chỉ số màu
 	Command History	Lịch sử lệnh
 	Command Line	Dòng lệnh
-	Command History	Lịch sử lệnh
 	Copy History	Sao chép lịch sử
 	Diagnostic Log	Nhật ký chẩn đoán
 	Command Log	Nhật ký lệnh

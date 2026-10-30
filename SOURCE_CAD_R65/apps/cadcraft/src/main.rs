@@ -381,13 +381,17 @@ fn main() -> eframe::Result {
             if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::PREFS_KEY)) {
                 app.load_prefs(&prefs);
             }
+            // Default the TBT360-branded build to Vietnamese; users may change it in Settings.
+            if std::env::var_os("TBT360_LOCALE").is_none() {
+                app.ui.interface_language = cadcraft_ui_egui::i18n::Preference::parse("vi").expect("Vietnamese locale is supported");
+            }
             if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::autosave::PREFS_KEY)) {
                 cadcraft_ui_egui::autosave::load_prefs(&prefs);
             }
             // Autosave files (SAVEFILEPATH) default to `<settings dir>/autosave`.
             if let Some(dir) = config_dir() {
                 app.enable_autosave(&dir.join("autosave"));
-                app.enable_update_check();
+                // TBT360 uses its own release channel; do not query upstream CADCraft updates.
                 // Startup LISP (acad.lsp, acaddoc.lsp) is read from `<settings>/support`; the
                 // folder is made so it is there to put them in.
                 let support = dir.join("support");

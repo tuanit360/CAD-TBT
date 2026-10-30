@@ -590,6 +590,17 @@ impl State {
         self.work_session_known_handles = current_handles;
     }
 
+    fn scope_entity_count(&self, app: &cadcraft_ui_egui::CadApp, floor_id: u64, discipline: Discipline) -> usize {
+        let Ok(doc) = app.session.doc() else { return 0 };
+        doc.model.iter().filter(|entity| {
+            bim_meta(&entity.common).is_some_and(|m| m.floor_id == floor_id && m.discipline == discipline)
+        }).count()
+    }
+
+    fn scope_progress(&self, floor_id: u64, discipline: Discipline) -> Option<&ScopeProgress> {
+        self.progress.iter().find(|p| p.floor_id == floor_id && p.discipline == discipline)
+    }
+
     fn scan_2d_coordination_candidates(&mut self, app: &cadcraft_ui_egui::CadApp, floor_id: u64, max_pairs: usize) {
         self.coordination_candidates.clear();
         let Ok(doc) = app.session.doc() else { return };
@@ -1259,6 +1270,38 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     });
 
     ui.separator();
+    ui.collapsing("Project Navigator BIM", |ui| {
+        ui.label("Theo dõi nhanh từng tầng/bộ môn, số đối tượng và mức độ hoàn thành; click để chuyển scope làm việc.");
+        egui::Grid::new("bim_project_navigator").striped(true).show(ui, |ui| {
+            ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Đối tượng"); ui.strong("Tiến độ"); ui.strong("Trạng thái"); ui.strong("Thao tác"); ui.end_row();
+            let floors = state.floors.clone();
+            for floor in floors {
+                for discipline in Discipline::ALL {
+                    let count = state.scope_entity_count(app, floor.id, discipline);
+                    let (percent, status) = state.scope_progress(floor.id, discipline)
+                        .map(|p| (p.percent, p.status.label()))
+                        .unwrap_or((0, ScopeStatus::NotStarted.label()));
+                    ui.label(&floor.name);
+                    ui.label(discipline.label());
+                    ui.label(count.to_string());
+                    ui.label(format!("{}%", percent));
+                    ui.label(status);
+                    if ui.button(format!("Mở {} / {}", floor.name, discipline.label())).clicked() {
+                        state.active_floor_id = floor.id;
+                        state.active_discipline = discipline;
+                        if let Some(slot) = state.views.first_mut() {
+                            slot.floor_id = floor.id;
+                            slot.discipline = discipline;
+                            slot.mode = ViewMode::Edit;
+                        }
+                    }
+                    ui.end_row();
+                }
+            }
+        });
+    });
+
+    ui.separator();
     ui.collapsing("Tiến độ thiết kế toàn dự án", |ui| {
         let floor_ids = state.floors.iter().map(|f| f.id).collect::<Vec<_>>();
         for floor_id in floor_ids {
@@ -1550,6 +1593,15 @@ mod tests {
         assert_eq!(restored.project_name, "Tower A");
         assert!((restored.coordinates.origin_x_m - 123.5).abs() < 1e-12);
         assert_eq!(restored.floors.len(), state.floors.len());
+    }
+
+    #[test]
+    fn scope_progress_lookup_returns_matching_floor_and_discipline() {
+        let state = State::default();
+        let p = state.scope_progress(1, Discipline::Architecture).unwrap();
+        assert_eq!(p.percent, 20);
+        assert_eq!(p.status, ScopeStatus::InProgress);
+        assert!(state.scope_progress(99, Discipline::Architecture).is_none());
     }
 
     #[test]

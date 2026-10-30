@@ -279,7 +279,10 @@ fn apply(s: &mut Session, keep: Handle, r: Region, erase: &[Handle]) -> Result<(
     if r.loops.is_empty() {
         d.remove_entity(keep);
     } else {
-        d.modify_entity(keep, |e| e.kind = EntityKind::Region(r))?;
+        d.modify_entity(keep,|e|{
+            e.kind=EntityKind::Region(r);
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,keep);
+        })?;
     }
     Ok(())
 }

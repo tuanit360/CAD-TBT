@@ -341,6 +341,7 @@ impl State {
         self.undo.push(std::mem::replace(&mut self.records, next));
         true
     }
+}
 
 fn source_path_json(path:&SourcePath)->serde_json::Value {
     serde_json::json!({
@@ -426,6 +427,7 @@ fn resolve_source_path(d:&cadcraft_doc::Drawing,path:&SourcePath)->Option<(cadcr
     Some((current,root))
 }
 
+impl State {
     fn record_json(record: &MeasurementRecord) -> serde_json::Value {
         serde_json::json!({
             "id": record.id, "kind": record.kind.code(), "points": record.points, "raw_value": record.raw_value,

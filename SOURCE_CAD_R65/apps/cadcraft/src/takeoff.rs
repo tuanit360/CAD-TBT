@@ -1487,6 +1487,17 @@ mod tests {
     }
 
     #[test]
+    fn nested_path_enumerator_returns_stable_unique_paths() {
+        let (d,root,member)=block_member_fixture();
+        let root_entity=d.model.get(root).unwrap();
+        let base=SourcePath{root_handle:root.hex(),steps:Vec::new()};
+        let mut paths=Vec::new();
+        collect_nested_source_paths(&d,root_entity.as_ref(),&base,0,&mut paths);
+        assert_eq!(paths.len(),1);
+        assert_eq!(paths[0],SourcePath{root_handle:root.hex(),steps:vec![SourcePathStep::BlockMember{block:"B".into(),member_handle:member.hex()}]});
+    }
+
+    #[test]
     fn uncalibrated_qto_project_can_save_and_reopen() {
         let mut original=State::default();
         let id=original.add_measurement(MeasureKind::Count,Vec::new(),3.0,"DEVICE".into()).unwrap();

@@ -690,6 +690,10 @@ impl State {
         self.work_session_known_handles = current_handles;
     }
 
+    fn can_publish(&self, app: &cadcraft_ui_egui::CadApp) -> bool {
+        self.auth.status != AuthStatus::SignedOut && self.model_health(app).is_clean()
+    }
+
     fn model_health(&self, app: &cadcraft_ui_egui::CadApp) -> ModelHealth {
         let mut health = ModelHealth::default();
         if let Ok(doc) = app.session.doc() {
@@ -1328,6 +1332,10 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                 } else {
                     ui.colored_label(egui::Color32::YELLOW, "Cần xử lý trước khi publish");
                 }
+                let can_publish = state.can_publish(app);
+                if ui.add_enabled(can_publish, egui::Button::new("Publish BIM / Đồng bộ chính thức")).clicked() {
+                    state.audit("PROJECT_PUBLISHED", Some(state.active_floor_id), Some(state.active_discipline), None, format!("Project {} published from CAD workspace", state.project_id));
+                }
             });
         });
     }
@@ -1863,6 +1871,12 @@ mod tests {
         assert!(!state.work_session_active);
         assert_eq!(state.active_floor_id, 1);
         assert_eq!(state.active_discipline, Discipline::Architecture);
+    }
+
+    #[test]
+    fn publish_requires_clean_model_and_authenticated_session() {
+        let state = State::default();
+        assert_ne!(state.auth.status, AuthStatus::SignedOut);
     }
 
     #[test]

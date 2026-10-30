@@ -407,6 +407,12 @@ struct SourceValidation {
     invalid_record_ids: std::collections::BTreeSet<u64>,
 }
 
+fn record_source_state(record:&MeasurementRecord,validation:&SourceValidation)->&'static str {
+    if record.source_handle.is_none() { "Legacy" }
+    else if validation.invalid_record_ids.contains(&record.id) { "STALE" }
+    else { "OK" }
+}
+
 fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
     let mut result=SourceValidation::default();
     for record in &state.records {
@@ -840,7 +846,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
 
     let source_validation=validate_sources(app,state);
-    if source_validation.missing_source>0 || source_validation.scope_mismatch>0 {
+    if source_validation.missing_source>0 || source_validation.scope_mismatch>0 || source_validation.stale_revision>0 || source_validation.stale_geometry>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
             "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry.",
             source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry
@@ -872,12 +878,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "lần" };
                     ui.label(record.id.to_string());
                     ui.label(record.source_handle.as_deref().unwrap_or("-"));
-                    if source_validation.invalid_record_ids.contains(&record.id) {
-                        ui.colored_label(egui::Color32::YELLOW,"STALE");
-                    } else if record.source_handle.is_some() {
-                        ui.label("OK");
-                    } else {
-                        ui.label("Legacy");
+                    match record_source_state(record,&source_validation) {
+                        "STALE" => { ui.colored_label(egui::Color32::YELLOW,"STALE"); }
+                        state => { ui.label(state); }
                     }
                     ui.label(record.scope.floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
                     ui.label(record.scope.discipline.as_deref().unwrap_or("-"));
@@ -1018,7 +1021,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             ui.ctx().copy_text(csv);
         }
         if ui.button("Sao chép CSV chi tiết phép đo").clicked() {
-            let mut csv = String::from("id,source_handle,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
+            let mut csv = String::from("id,source_handle,source_state,floor_id,discipline,owner_account_id,type,layer,work_group,work_code,description,note,raw_value,converted_value,unit,status\n");
             for record in &state.records {
                 let converted = match record.kind {
                     MeasureKind::Area => record.raw_value * af,
@@ -1027,9 +1030,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                 };
                 let unit = match record.kind { MeasureKind::Area => area_unit, MeasureKind::Length | MeasureKind::Perimeter => length_unit, MeasureKind::Count => "count" };
                 let esc = |v:&str| format!("\"{}\"", v.replace('"', "\"\""));
-                csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
+                csv.push_str(&format!("{},{},{},{},{},{},{},{},{},{},{},{},{:.6},{:.6},{},{}\n",
                     record.id,
                     esc(record.source_handle.as_deref().unwrap_or("")),
+                    record_source_state(record,&source_validation),
                     record.scope.floor_id.map(|v|v.to_string()).unwrap_or_default(),
                     esc(record.scope.discipline.as_deref().unwrap_or("")),
                     esc(record.scope.owner_account_id.as_deref().unwrap_or("")),
@@ -1244,6 +1248,20 @@ mod tests {
         let mut reopened=State::default();
         reopened.load_json(&json).unwrap();
         assert_eq!(reopened.records[0].source_revision,Some(4));
+    }
+
+    #[test]
+    fn source_state_labels_legacy_ok_and_stale_records() {
+        let mut state=State::default();
+        let legacy=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"A".into()).unwrap();
+        let scope=Scope{floor_id:Some(1),discipline:Some("ARCH".into()),owner_account_id:Some("u1".into())};
+        let linked=state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"A".into(),&scope).unwrap();
+        state.records.iter_mut().find(|r|r.id==linked).unwrap().source_handle=Some("1".into());
+        let mut validation=SourceValidation::default();
+        assert_eq!(record_source_state(state.records.iter().find(|r|r.id==legacy).unwrap(),&validation),"Legacy");
+        assert_eq!(record_source_state(state.records.iter().find(|r|r.id==linked).unwrap(),&validation),"OK");
+        validation.invalid_record_ids.insert(linked);
+        assert_eq!(record_source_state(state.records.iter().find(|r|r.id==linked).unwrap(),&validation),"STALE");
     }
 
     #[test]

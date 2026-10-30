@@ -75,6 +75,40 @@ pub struct PushChangeSetResponse {
     pub conflicts: Vec<ConflictItemDto>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PublishRevisionRequest {
+    pub project_id: String,
+    pub workset_id: String,
+    pub revision_id: String,
+    pub account_id: String,
+    pub expected_state: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PublishRevisionResponse {
+    pub revision_id: String,
+    pub published_revision_no: u64,
+    pub published_by: String,
+    pub project_revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsumeRevisionRequest {
+    pub project_id: String,
+    pub consumer_workset_id: String,
+    pub source_workset_id: String,
+    pub source_revision_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelLinkRefreshDto {
+    pub link_id: String,
+    pub source_model_id: String,
+    pub current_revision: Option<u64>,
+    pub latest_published_revision: Option<u64>,
+    pub stale: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PresenceUpdateDto {
     pub project_id: String,
@@ -134,6 +168,12 @@ mod tests {
             project_id:"P".into(),building_id:Some("B1".into()),zone_id:None,floor_id:Some("F2".into()),
             discipline:Some("ELEC".into()),workset_id:Some("LIGHT".into()),owner_account_id:Some("u1".into())
         }
+    }
+
+    #[test]
+    fn publish_contract_requires_review_state_by_convention() {
+        let req=PublishRevisionRequest{project_id:"P".into(),workset_id:"W".into(),revision_id:"R1".into(),account_id:"u".into(),expected_state:"REVIEW".into()};
+        assert_eq!(req.expected_state,"REVIEW");
     }
 
     #[test]

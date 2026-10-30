@@ -346,8 +346,6 @@ fn about(ctx: &egui::Context, open: &mut bool) {
                     ui.label("Ứng dụng thiết kế và triển khai bản vẽ CAD native viết bằng Rust.");
                     ui.add_space(6.0);
                     ui.label(RichText::new("Sản phẩm CAD 360 Việt Nam của TBT Việt Nam; phát triển trên nền mã nguồn mở CADCraft và giữ nguyên các nghĩa vụ giấy phép tương ứng.").color(t.text_dim));
-                    ui.hyperlink_to("getartcraft.com/apps/cadcraft", "https://getartcraft.com/apps/cadcraft");
-                    ui.hyperlink_to(crate::tl!("Join us on Discord"), "https://discord.gg/artcraft");
                     ui.add_space(6.0);
                     ui.label(RichText::new(crate::tl!("MIT OR Apache-2.0. Not affiliated with Autodesk, Inc.")).small().color(t.text_faint));
                 }

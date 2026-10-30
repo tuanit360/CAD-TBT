@@ -95,6 +95,12 @@ impl OfflineSyncState {
         self.queue.iter().filter(|i| !matches!(i.state, QueueState::Synced | QueueState::Rejected)).count()
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
     #[test]
     fn retry_backoff_is_bounded_and_acknowledgement_advances_checkpoint() {
         let mut s=OfflineSyncState::default();
@@ -107,11 +113,6 @@ impl OfflineSyncState {
         assert_eq!(s.checkpoint.remote_project_revision,12);
         assert_eq!(s.pending_count(),0);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn offline_changes_move_to_pending_on_reconnect() {

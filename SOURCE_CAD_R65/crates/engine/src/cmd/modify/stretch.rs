@@ -108,7 +108,10 @@ pub(super) fn run_stretch(s: &mut Session, p: &Value) -> Result<Value> {
     let doc = s.doc_mut()?;
     let areas = [area];
     for h in &hs {
-        doc.modify_entity(*h, |e| stretch_entity(e, &areas, d))?;
+        doc.modify_entity(*h,|e|{
+            stretch_entity(e,&areas,d);
+            super::bump_tbt360_bim_revision(&mut e.common,*h);
+        })?;
     }
     Ok(json!({ "stretched": hs.len() }))
 }
@@ -294,7 +297,10 @@ impl StretchM {
         for h in self.objs.iter().filter(|h| !self.whole.contains(h)) {
             let locked = doc.entity(*h).and_then(|e| doc.layer(&e.common.layer)).is_some_and(|l| l.locked);
             if !locked {
-                doc.modify_entity(*h, |e| stretch_entity(e, &self.windows, d))?;
+                doc.modify_entity(*h,|e|{
+                    stretch_entity(e,&self.windows,d);
+                    super::bump_tbt360_bim_revision(&mut e.common,*h);
+                })?;
             }
         }
         s.set_selection(Vec::new());

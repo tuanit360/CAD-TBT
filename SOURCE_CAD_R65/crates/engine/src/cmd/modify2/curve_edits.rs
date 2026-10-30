@@ -227,6 +227,22 @@ fn ends(sp: &Spline) -> (Vec2, Vec2) {
 /// polyline join handles those). Elliptical arcs that all lie on one ellipse merge into a
 /// larger arc or the full ellipse (gaps between them close). Otherwise the objects joined end
 /// to end with the first one become one spline. The first joined object keeps its handle.
+fn finalize_joined_bim_scope(s:&mut Session,keep:Handle,used:&[Handle])->Result<()> {
+    let same_scope={
+        let d=s.doc()?;
+        let key=d.entity(keep).and_then(|e|crate::cmd::modify::tbt360_bim_scope_key(&e.common));
+        key.is_some() && used.iter().all(|h|d.entity(*h).and_then(|e|crate::cmd::modify::tbt360_bim_scope_key(&e.common))==key)
+    };
+    s.doc_mut()?.modify_entity(keep,|e|{
+        if same_scope {
+            crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,keep);
+        } else {
+            crate::cmd::modify::strip_tbt360_bim(&mut e.common);
+        }
+    })?;
+    Ok(())
+}
+
 pub(crate) fn join_curves(s: &mut Session, hs: &[Handle]) -> Result<Option<Handle>> {
     // A handle named twice is one object: a repeat would join it with itself or remove the result.
     let mut seen = std::collections::HashSet::new();
@@ -248,10 +264,12 @@ pub(crate) fn join_curves(s: &mut Session, hs: &[Handle]) -> Result<Option<Handl
         let offsets: Option<Vec<f64>> = ells.iter().map(|(_, e)| same_ellipse(&src, e)).collect();
         if let Some(offsets) = offsets {
             let arcs: Vec<(f64, f64)> = ells.iter().zip(&offsets).map(|((_, e), o)| (e.start + o, e.sweep())).collect();
-            let merged = merge_arcs(&src, &arcs);
-            set_kind(s, src_h, ellipse_kind(&merged))?;
-            let doc = s.doc_mut()?;
-            for (h, _) in ells.iter().skip(1) {
+            let merged=merge_arcs(&src,&arcs);
+            set_kind(s,src_h,ellipse_kind(&merged))?;
+            let used=ells.iter().map(|(h,_)|*h).collect::<Vec<_>>();
+            finalize_joined_bim_scope(s,src_h,&used)?;
+            let doc=s.doc_mut()?;
+            for (h,_) in ells.iter().skip(1) {
                 doc.remove_entity(*h);
             }
             s.set_selection(Vec::new());
@@ -306,10 +324,11 @@ pub(crate) fn join_curves(s: &mut Session, hs: &[Handle]) -> Result<Option<Handl
     }
     let (a, b) = ends(&out);
     out.closed = a.near(b, tol);
-    let keep = first_h;
-    set_kind(s, keep, EntityKind::Spline(out))?;
-    let doc = s.doc_mut()?;
-    for h in used.iter().filter(|h| **h != keep) {
+    let keep=first_h;
+    set_kind(s,keep,EntityKind::Spline(out))?;
+    finalize_joined_bim_scope(s,keep,&used)?;
+    let doc=s.doc_mut()?;
+    for h in used.iter().filter(|h|**h!=keep) {
         doc.remove_entity(*h);
     }
     s.set_selection(Vec::new());
@@ -337,7 +356,8 @@ pub(crate) fn join_close(s: &mut Session, hs: &[Handle]) -> Result<Handle> {
     if curves::is_locked(s, h) {
         return Err(other("An object is on a locked layer."));
     }
-    set_kind(s, h, k)?;
+    set_kind(s,h,k)?;
+    s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
     s.set_selection(Vec::new());
     Ok(h)
 }

@@ -34,11 +34,14 @@ enum MainTab {
     #[default]
     Cad,
     Takeoff,
+    Pdf,
+    Model3d,
 }
 
 struct App {
     cad: CadApp,
     active_tab: MainTab,
+    takeoff_state: takeoff::State,
     spacemouse: spacemouse::SpaceMouse,
     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
     desktop_theme: desktop_theme::DesktopTheme,
@@ -122,11 +125,21 @@ impl eframe::App for App {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.active_tab, MainTab::Cad, "CAD");
             ui.selectable_value(&mut self.active_tab, MainTab::Takeoff, "ĐO BÓC");
+            ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
+            ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
         });
         ui.separator();
         match self.active_tab {
             MainTab::Cad => self.cad.ui(ui),
-            MainTab::Takeoff => takeoff::panel(ui, &self.cad),
+            MainTab::Takeoff => takeoff::panel(ui, &self.cad, &mut self.takeoff_state),
+            MainTab::Pdf => {
+                ui.heading("PDF / BẢN VẼ");
+                ui.label("Khu vực tích hợp PDF nhiều trang, hiệu chỉnh theo trang, overlay và annotation. Chức năng đang được chuyển từ QTO R134 sang native.");
+            }
+            MainTab::Model3d => {
+                ui.heading("3D / IFC");
+                ui.label("Khu vực tích hợp IFC/Solid/Volume và đối chiếu khối lượng 2D/3D. Chưa được đánh dấu hoàn thành.");
+            }
         }
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
@@ -428,6 +441,7 @@ fn main() -> eframe::Result {
                 system_animations,
                 cad: app,
                 active_tab: MainTab::default(),
+                takeoff_state: takeoff::State::default(),
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,

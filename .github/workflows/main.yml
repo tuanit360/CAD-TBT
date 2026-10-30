@@ -1,4 +1,4 @@
-name: TBT360 CAD R65 Windows Build
+name: CAD 360 Viet Nam - TBT Windows CI
 
 on:
   workflow_dispatch:
@@ -6,89 +6,141 @@ on:
     branches: [main]
     paths:
       - 'SOURCE_CAD_R65/**'
+      - 'installer/**'
       - '.github/workflows/main.yml'
 
 concurrency:
-  group: cad-r65-${{ github.workflow }}-${{ github.ref }}
+  group: cad360-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-windows:
+  build-core:
+    name: "1 - Build Core"
     runs-on: windows-latest
-
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
-
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
-      - name: Check Rust version
-        run: |
-          rustc --version
-          cargo --version
-
-      - name: Cache Rust dependencies and build
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: SOURCE_CAD_R65
-
-      - name: Verify CADCraft updater is absent from TBT360 runtime
+      - name: Verify pinned lockfile
+        run: cargo metadata --locked --no-deps --format-version 1 > $null
+      - name: Verify CADCraft updater is absent from TBT runtime
         shell: pwsh
         run: |
           $hits = git grep -n -E "craft_update|craft-update|suite::CADCRAFT" -- apps/cadcraft/src crates/ui-egui/src apps/cadcraft/Cargo.toml crates/ui-egui/Cargo.toml Cargo.toml
           $grepExit = $LASTEXITCODE
           if ($grepExit -eq 0 -and $hits) {
             $hits | Write-Host
-            throw "Upstream CADCraft updater code is still referenced by the TBT360 runtime"
+            throw "Upstream CADCraft updater code is still referenced by the TBT runtime"
           }
           if ($grepExit -ne 0 -and $grepExit -ne 1) { throw "git grep failed with exit code $grepExit" }
           $global:LASTEXITCODE = 0
-
-      - name: Check CAD workspace
+      - name: Check complete Rust workspace
         run: cargo check --workspace --locked
 
-      - name: Test CAD menus and command dispatch
+  unified-ui:
+    name: "2 - Unified CAD UI"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Test menus and command dispatch
         run: cargo test --locked -p cadcraft-ui-egui menus::tests -- --nocapture
-
-      - name: Test Vietnamese interface catalog
-        run: cargo test --locked -p cadcraft-ui-egui i18n::tests -- --nocapture
-
-      - name: Test Layers and Properties palettes
+      - name: Test Layers
+        run: cargo test --locked -p cadcraft-ui-egui layers::tests -- --nocapture
+      - name: Test Properties palettes
+        run: cargo test --locked -p cadcraft-ui-egui palettes::tests -- --nocapture
+      - name: Verify separate legacy launchers are absent
+        shell: pwsh
+        working-directory: .
         run: |
-          cargo test --locked -p cadcraft-ui-egui layers::tests -- --nocapture
-          cargo test --locked -p cadcraft-ui-egui palettes::tests -- --nocapture
+          foreach ($p in @("CHAY_QTO_WEB_THAM_CHIEU.bat","CHAY_CAD_GOC_014.bat","CHAY_EXE_R65_SAU_BUILD.bat")) {
+            if (Test-Path $p) { throw "Legacy separate launcher must not ship in unified product flow: $p" }
+          }
 
-      - name: Test DXF/DWG IO roundtrips
-        run: cargo test --locked -p cadcraft-io --test it -- --nocapture
+  vi-tbt-branding:
+    name: "3 - Vietnamese and TBT Branding"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Test localization catalogs
+        run: cargo test --locked -p cadcraft-ui-egui i18n::tests -- --nocapture
+      - name: Verify Vietnamese catalog exists
+        shell: pwsh
+        run: |
+          if (!(Test-Path "crates/ui-egui/src/i18n/vi.tsv")) { throw "Missing Vietnamese catalog" }
+          if ((Get-Item "crates/ui-egui/src/i18n/vi.tsv").Length -lt 1000) { throw "Vietnamese catalog is unexpectedly small" }
+      - name: Verify TBT product title
+        shell: pwsh
+        run: |
+          $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
+          if ($main -notmatch "CAD 2D - TBT 360") { throw "TBT runtime title missing" }
 
+  regression-tests:
+    name: "4 - Regression and Data Tests"
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
       - name: Test native Takeoff
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
-
-      - name: Test complete CAD workspace
+      - name: Test DXF/DWG IO roundtrips
+        run: cargo test --locked -p cadcraft-io --test it -- --nocapture
+      - name: Test complete workspace
         run: cargo test --workspace --locked --no-fail-fast
 
-      - name: Build CAD R65
+  release-windows:
+    name: "Release - Single Windows Setup"
+    needs: [build-core, unified-ui, vi-tbt-branding, regression-tests]
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Build release binaries
         run: cargo build --release --locked -p cadcraft -p cadcraft-cli
-
       - name: Verify native Windows binaries
         shell: pwsh
         run: |
           foreach ($name in @("cadcraft.exe", "cadcraft-cli.exe")) {
             $path = "target/release/$name"
-            if (!(Test-Path $path)) { throw "Missing compiled R65 binary: $path" }
-            $file = Get-Item $path
-            if ($file.Length -lt 100000) { throw "Unexpectedly small compiled binary: $path" }
+            if (!(Test-Path $path)) { throw "Missing compiled binary: $path" }
+            if ((Get-Item $path).Length -lt 100000) { throw "Unexpectedly small binary: $path" }
           }
           & "./target/release/cadcraft-cli.exe" --version
-          if ($LASTEXITCODE -ne 0) { throw "R65 CLI smoke test failed" }
-
+          if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
       - name: Install Inno Setup compiler
         shell: pwsh
         run: |
@@ -97,17 +149,15 @@ jobs:
             choco install innosetup --yes --no-progress
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
           }
-          if (!(Test-Path $iscc)) { throw "ISCC.exe not found after installation" }
-
-      - name: Build Windows Setup EXE
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+      - name: Build single Windows Setup
         shell: pwsh
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
           & $iscc "/Qp" "../installer/TBT360_CAD_R65.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
           if (!(Test-Path "../dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE not created" }
-
-      - name: Upload Windows Setup
+      - name: Upload single Windows Setup
         uses: actions/upload-artifact@v4
         with:
           name: CAD360_VietNam_TBT_Windows_Setup

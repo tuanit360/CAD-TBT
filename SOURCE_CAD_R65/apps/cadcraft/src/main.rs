@@ -135,7 +135,10 @@ impl eframe::App for App {
         });
         ui.separator();
         match self.active_tab {
-            MainTab::Cad => self.cad.ui(ui),
+            MainTab::Cad => {
+                self.cad.ui(ui);
+                bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
+            }
             MainTab::Takeoff => takeoff::panel(ui, &self.cad, &mut self.takeoff_state),
             MainTab::Pdf => {
                 ui.heading("PDF / BẢN VẼ");

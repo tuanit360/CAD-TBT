@@ -439,8 +439,9 @@ impl Interactive for PeditM {
                 let k = curves::entity(s, h)?.kind;
                 let pl = as_lwpoly(&k).ok_or_else(|| other("Cannot convert."))?;
                 self.original = Some(pl.vertices.clone());
-                set_kind(s, h, EntityKind::LwPolyline(pl))?;
-                self.phase = PPhase::Main;
+                set_kind(s,h,EntityKind::LwPolyline(pl))?;
+                s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
+                self.phase=PPhase::Main;
                 Ok(Step::Continue)
             }
             PPhase::Main => {
@@ -472,7 +473,8 @@ impl Interactive for PeditM {
                         match (self.poly(s), self.original.clone()) {
                             (Some(mut pl), Some(orig)) => {
                                 pl.vertices = orig.into_iter().map(|v| PolyVertex { bulge: 0.0, ..v }).collect();
-                                set_kind(s, h, EntityKind::LwPolyline(pl))?;
+                                set_kind(s,h,EntityKind::LwPolyline(pl))?;
+                                s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
                             }
                             _ => {
                                 self.history.pop();

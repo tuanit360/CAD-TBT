@@ -1,4 +1,4 @@
-name: CAD360 R66 Parallel CI
+name: CAD360 R67 Unified Single App CI
 
 on:
   workflow_dispatch:
@@ -6,17 +6,18 @@ on:
     branches: [main, integration/cad360-unified-r66]
     paths:
       - 'SOURCE_CAD_R65/**'
+      - 'installer/**'
       - '.github/workflows/parallel-r66.yml'
   push:
     branches:
-      - 'fix/r66-parallel-ci-6-lanes'
+      - 'integration/cad360-unified-r67'
       - 'integration/cad360-unified-r66'
     paths:
       - 'SOURCE_CAD_R65/**'
       - '.github/workflows/parallel-r66.yml'
 
 concurrency:
-  group: cad360-r66-parallel-${{ github.ref }}
+  group: cad360-r67-unified-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -155,4 +156,28 @@ jobs:
         with:
           name: CAD360_VietNam_TBT_Portable_Win64
           path: portable/CAD360_VietNam_TBT_Portable_Win64.zip
+          if-no-files-found: error
+      - name: Compile the same CAD360 binary into Windows installer
+        shell: pwsh
+        working-directory: .
+        run: |
+          $src = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $dst = "SOURCE_CAD_R65/target/release"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "$src/cadcraft.exe" "$dst/cadcraft.exe" -Force
+          Copy-Item "$src/cadcraft-cli.exe" "$dst/cadcraft-cli.exe" -Force
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+          & $iscc "/Qp" "installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+          if (!(Test-Path "dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE was not generated" }
+          Get-FileHash "dist/CAD360_VietNam_TBT_Setup.exe" -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Windows_Setup_EXE
+          path: dist/CAD360_VietNam_TBT_Setup.exe
           if-no-files-found: error

@@ -3,6 +3,7 @@
 //! don't keep it.
 
 use cadcraft_engine::Session;
+use cadcraft_engine::cmd::file::{IoHooks,set_io};
 use cadcraft_engine::doc::{Drawing, EntityKind, Handle, RawTag};
 use serde_json::json;
 
@@ -53,6 +54,52 @@ fn bim_payload(s:&Session,h:Handle)->String {
     let e=s.doc().unwrap().entity(h).unwrap();
     let at=e.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
     e.common.xdata.get(at+1).unwrap().value.clone()
+}
+
+#[test]
+fn wblock_insert_real_file_preserves_bim_member_identity_and_explode_scope() {
+    set_io(IoHooks{
+        read:|bytes,name|cadcraft_io::read(bytes,name).map_err(|e|e.to_string()),
+        write:|d,name|cadcraft_io::write(d,name).map_err(|e|e.to_string()),
+        plot:None,
+    });
+
+    let (mut source,line_handle,_)=session();
+    add_bim(&mut source,line_handle,2,"ELEC","u1",7);
+    let dir=std::env::temp_dir().join(format!("cadcraft-bim-wblock-{}",std::process::id()));
+    let _=std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path=dir.join("part.dxf");
+
+    source.execute("wblock",&json!({"path":path.to_string_lossy(),"handles":[line_handle.hex()],"base":[0,0]})).unwrap();
+    let written=cadcraft_io::read(&std::fs::read(&path).unwrap(),&path.to_string_lossy()).unwrap();
+    let written_member=written.model.first().unwrap();
+    let at=written_member.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
+    let payload=&written_member.common.xdata[at+1].value;
+    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=1"));
+    assert!(payload.contains(&format!("entity={}",written_member.handle.hex())));
+
+    let mut target=Session::empty();
+    target.open_drawing(Drawing::new_metric(),"target",None);
+    let r=target.execute("insert",&json!({"file":path.to_string_lossy(),"at":[0,0]})).unwrap();
+    let insert_handle=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    let insert_entity=target.doc().unwrap().entity(insert_handle).unwrap();
+    let EntityKind::Insert(ins)=&insert_entity.kind else{panic!("expected insert")};
+    let block=target.doc().unwrap().block(&ins.block).unwrap();
+    let member=block.entities.first().unwrap();
+    let at=member.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
+    let payload=&member.common.xdata[at+1].value;
+    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=1"));
+    assert!(payload.contains(&format!("entity={}",member.handle.hex())));
+
+    let before=model_handles(&target);
+    target.execute("explode",&json!({"handles":[insert_handle.hex()]})).unwrap();
+    let pieces=new_handles(&target,&before);
+    assert_eq!(pieces.len(),1);
+    let piece=pieces[0];
+    let payload=bim_payload(&target,piece);
+    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=1"));
+    assert!(payload.contains(&format!("entity={}",piece.hex())));
 }
 
 #[test]

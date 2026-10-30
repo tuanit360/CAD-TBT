@@ -420,6 +420,7 @@ pub struct EntityScope {
     pub floor_id: u64,
     pub discipline: String,
     pub owner_account_id: String,
+    pub revision: u64,
 }
 
 pub fn entity_scope(app: &cadcraft_ui_egui::CadApp, handle: cadcraft_doc::Handle) -> Option<EntityScope> {
@@ -430,6 +431,7 @@ pub fn entity_scope(app: &cadcraft_ui_egui::CadApp, handle: cadcraft_doc::Handle
         floor_id: meta.floor_id,
         discipline: meta.discipline.code().to_string(),
         owner_account_id: meta.owner_account_id,
+        revision: meta.revision,
     })
 }
 
@@ -2221,10 +2223,11 @@ mod tests {
 
     #[test]
     fn entity_scope_contract_keeps_floor_discipline_and_owner() {
-        let scope=EntityScope{floor_id:3,discipline:"Điện".into(),owner_account_id:"u-elec".into()};
+        let scope=EntityScope{floor_id:3,discipline:"ELEC".into(),owner_account_id:"u-elec".into(),revision:7};
         assert_eq!(scope.floor_id,3);
-        assert_eq!(scope.discipline,"Điện");
+        assert_eq!(scope.discipline,"ELEC");
         assert_eq!(scope.owner_account_id,"u-elec");
+        assert_eq!(scope.revision,7);
     }
 
     #[test]

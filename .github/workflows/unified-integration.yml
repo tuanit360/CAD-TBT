@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   unified:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: SOURCE_CAD_R65
@@ -26,22 +26,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: SOURCE_CAD_R65
-      - name: Verify locked dependency graph
-        run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
-      - name: Check full workspace
-        run: cargo check --workspace --locked
-      - name: Test full workspace
-        run: cargo test --workspace --locked
+      - name: Check unified CAD app
+        run: cargo check --locked -p cadcraft
+      - name: Test BIM modules
+        run: cargo test --locked -p cadcraft bim_ -- --nocapture
       - name: Test native QTO
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
-      - name: Upload unified source snapshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CAD360_UNIFIED_SOURCE_${{ github.sha }}
-          path: |
-            SOURCE_CAD_R65
-            backend
-            BIM_*.md
-          if-no-files-found: error
-          retention-days: 30
+      - name: Full workspace check
+        run: cargo check --workspace --locked

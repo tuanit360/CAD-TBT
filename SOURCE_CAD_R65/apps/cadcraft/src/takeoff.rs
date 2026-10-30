@@ -203,12 +203,23 @@ impl State {
                 status,
             });
         }
+        let mut audit = Vec::new();
+        for item in value.get("audit").and_then(serde_json::Value::as_array).cloned().unwrap_or_default() {
+            let sequence = item.get("sequence").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let record_id = item.get("record_id").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let action = item.get("action").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+            let before = item.get("before").and_then(serde_json::Value::as_str).map(str::to_string);
+            let after = item.get("after").and_then(serde_json::Value::as_str).map(str::to_string);
+            if sequence > 0 && !action.is_empty() {
+                audit.push(AuditEntry { sequence, record_id, action, before, after });
+            }
+        }
         self.drawing_distance = drawing_distance;
         self.real_distance_m = real_distance_m;
         self.records = records;
+        self.audit = audit;
         self.next_record_id = self.records.iter().map(|r| r.id).max().unwrap_or(0) + 1;
-        self.next_audit_sequence = 1;
-        self.audit.clear();
+        self.next_audit_sequence = self.audit.iter().map(|a| a.sequence).max().unwrap_or(0) + 1;
         self.undo.clear();
         self.redo.clear();
         Ok(())
@@ -630,6 +641,8 @@ mod tests {
         assert_eq!(reopened.records[0].work_code, "TT-001");
         assert_eq!(reopened.records[0].status, MeasureStatus::Confirmed);
         assert!((reopened.records[0].raw_value * reopened.scale_to_m().unwrap() - 2.5).abs() < 1e-12);
+        assert_eq!(reopened.audit, state.audit);
+        assert!(reopened.next_audit_sequence > reopened.audit.last().map(|a| a.sequence).unwrap_or(0));
     }
 
     #[test]

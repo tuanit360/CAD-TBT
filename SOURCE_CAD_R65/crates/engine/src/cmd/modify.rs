@@ -32,7 +32,7 @@ use fillet::{FilletM, run_chamfer, run_fillet};
 use offset::{OffsetM, run_offset};
 use select_then::{DisplaceM, Op, SelectThen};
 use stretch::{StretchM, run_stretch};
-pub(crate) use transform::{refresh_tbt360_bim_copy_identity, transform_entities};
+pub(crate) use transform::{copy_tbt360_bim_scope, refresh_tbt360_bim_copy_identity, tbt360_bim_scope_key, transform_entities};
 use transform::{run_copy, run_erase, run_mirror, run_move, run_rotate, run_scale};
 pub(crate) use trim::{Edges, extend, trim};
 

@@ -467,6 +467,59 @@ fn splinedit_keeps_identity_and_bumps_revision() {
 }
 
 #[test]
+fn properties_set_keeps_identity_and_bumps_revision() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,2,"ELEC","u1",4);
+    s.execute("properties.set",&json!({"handles":[h.hex()],"length":12.0,"color":"3"})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=5"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn layer_move_and_merge_bump_bim_revision() {
+    let mut s=Session::new();
+    s.execute("layer.new",&json!({"name":"A"})).unwrap();
+    s.execute("layer.new",&json!({"name":"B"})).unwrap();
+    let h=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,1,"ARCH","u1",1);
+    s.execute("laymch",&json!({"handles":[h.hex()],"layer":"A"})).unwrap();
+    assert!(bim_payload(&s,h).contains("revision=2"));
+    s.execute("laymrg",&json!({"from":["A"],"to":"B"})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=3"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn textedit_keeps_identity_and_undo_restores_revision() {
+    let mut s=Session::new();
+    let h=Handle::parse_hex(s.execute("text",&json!({"at":[0,0],"text":"A","height":2.5})).unwrap()["handle"].as_str().unwrap()).unwrap();
+    add_bim(&mut s,h,1,"ARCH","u1",7);
+    s.execute("textedit",&json!({"handle":h.hex(),"text":"B"})).unwrap();
+    assert!(bim_payload(&s,h).contains("revision=8"));
+    s.execute("undo",&json!({})).unwrap();
+    let p=bim_payload(&s,h);
+    assert!(p.contains("revision=7"));
+    assert!(p.contains(&format!("entity={}",h.hex())));
+}
+
+#[test]
+fn array_grip_edit_keeps_array_identity_and_bumps_revision() {
+    let mut s=Session::new();
+    let src=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[1,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();
+    add_bim(&mut s,src,2,"ELEC","u1",1);
+    let r=s.execute("arrayrect",&json!({"handles":[src.hex()],"rows":1,"cols":2,"rowSpacing":5.0,"colSpacing":10.0,"associative":true})).unwrap();
+    let arr=Handle::parse_hex(r["handle"].as_str().unwrap()).unwrap();
+    assert!(bim_payload(&s,arr).contains("revision=1"));
+    s.execute("arraygripset",&json!({"handle":arr.hex(),"parameter":"cols","value":3})).unwrap();
+    let p=bim_payload(&s,arr);
+    assert!(p.contains("revision=2"));
+    assert!(p.contains(&format!("entity={}",arr.hex())));
+}
+
+#[test]
 fn fillet_same_bim_scope_bumps_sources_and_scopes_new_arc() {
     let mut s=Session::new();
     let a=Handle::parse_hex(s.execute("line",&json!({"points":[[0,0],[10,0]]})).unwrap()["handles"][0].as_str().unwrap()).unwrap();

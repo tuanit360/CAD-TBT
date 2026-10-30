@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cadcraft_doc::{Common, Drawing, Entity, EntityStore, Handle};
+use cadcraft_doc::{Common, Drawing, Entity, EntityKind, EntityStore, Handle};
 
 use crate::Session;
 

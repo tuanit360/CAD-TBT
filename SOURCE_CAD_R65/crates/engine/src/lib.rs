@@ -13,6 +13,7 @@ pub mod assoc;
 pub mod atomic_write;
 pub mod audit;
 pub mod autosave;
+mod bim_runtime;
 pub mod blockedit;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod capped_read;

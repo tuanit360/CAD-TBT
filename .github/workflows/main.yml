@@ -52,6 +52,12 @@ jobs:
       - name: Check CAD workspace
         run: cargo check --workspace --locked
 
+      - name: Test CAD menus and command dispatch
+        run: cargo test --locked -p cadcraft-ui-egui menus::tests -- --nocapture
+
+      - name: Test Vietnamese interface catalog
+        run: cargo test --locked -p cadcraft-ui-egui i18n::tests -- --nocapture
+
       - name: Test native Takeoff
         run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
 

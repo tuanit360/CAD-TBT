@@ -129,6 +129,9 @@ impl State {
     }
 
     fn add_measurement_scoped(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String, scope: &Scope) -> Result<u64, String> {
+        if scope.floor_id == Some(0) { return Err("BIM scope floor_id không hợp lệ".into()); }
+        if scope.discipline.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("BIM scope discipline trống".into()); }
+        if scope.owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("BIM scope owner trống".into()); }
         let id=self.add_measurement(kind,points,raw_value,layer)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
             record.scope=scope.clone();
@@ -251,6 +254,9 @@ impl State {
             let floor_id=scope_value.and_then(|v|v.get("floor_id")).and_then(serde_json::Value::as_u64);
             let discipline=scope_value.and_then(|v|v.get("discipline")).and_then(serde_json::Value::as_str).map(str::to_string);
             let owner_account_id=scope_value.and_then(|v|v.get("owner_account_id")).and_then(serde_json::Value::as_str).map(str::to_string);
+            if floor_id==Some(0) || discipline.as_deref().is_some_and(|v|v.trim().is_empty()) || owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) {
+                return Err("Measurement BIM scope không hợp lệ".into());
+            }
             records.push(MeasurementRecord {
                 id, kind, points, raw_value,
                 layer: item.get("layer").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
@@ -942,6 +948,28 @@ mod tests {
         assert!((reopened.records[0].raw_value * reopened.scale_to_m().unwrap() - 2.5).abs() < 1e-12);
         assert_eq!(reopened.audit, state.audit);
         assert!(reopened.next_audit_sequence > reopened.audit.last().map(|a| a.sequence).unwrap_or(0));
+    }
+
+    #[test]
+    fn legacy_qto_v2_without_scope_still_reopens() {
+        let legacy=serde_json::json!({
+            "version":2,
+            "drawing_distance":0.0,
+            "real_distance_m":0.0,
+            "records":[{"id":1,"kind":"count","points":[],"raw_value":1.0,"layer":"DEVICE","status":"review"}],
+            "audit":[]
+        });
+        let mut state=State::default();
+        state.load_json(&legacy).unwrap();
+        assert_eq!(state.records.len(),1);
+        assert_eq!(state.records[0].scope,Scope::default());
+    }
+
+    #[test]
+    fn scoped_measurement_rejects_invalid_scope() {
+        let mut state=State::default();
+        let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
+        assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
     }
 
     #[test]

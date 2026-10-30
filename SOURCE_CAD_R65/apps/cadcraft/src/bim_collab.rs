@@ -117,6 +117,63 @@ pub struct AuthSession {
     pub email: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScopeStatus {
+    NotStarted,
+    InProgress,
+    Review,
+    Complete,
+}
+
+impl ScopeStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::NotStarted => "Chưa bắt đầu",
+            Self::InProgress => "Đang thực hiện",
+            Self::Review => "Đang kiểm tra",
+            Self::Complete => "Hoàn thành",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ScopeProgress {
+    pub floor_id: u64,
+    pub discipline: Discipline,
+    pub percent: u8,
+    pub status: ScopeStatus,
+    pub updated_by: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IssueStatus {
+    Open,
+    InProgress,
+    Resolved,
+}
+
+impl IssueStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Mở",
+            Self::InProgress => "Đang xử lý",
+            Self::Resolved => "Đã xử lý",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CoordinationIssue {
+    pub id: u64,
+    pub floor_id: u64,
+    pub source_discipline: Discipline,
+    pub target_discipline: Discipline,
+    pub handle: Option<cadcraft_doc::Handle>,
+    pub assigned_to: String,
+    pub description: String,
+    pub status: IssueStatus,
+}
+
 #[derive(Clone, Debug)]
 pub struct AccessRule {
     pub account_id: String,
@@ -325,6 +382,9 @@ pub struct State {
     pub conflicts: Vec<SyncConflict>,
     pub auth: AuthSession,
     pub access_rules: Vec<AccessRule>,
+    pub progress: Vec<ScopeProgress>,
+    pub issues: Vec<CoordinationIssue>,
+    next_issue_id: u64,
 }
 
 impl Default for State {
@@ -374,11 +434,46 @@ impl Default for State {
                 AccessRule { account_id: "mep-elec-01".into(), floor_id: None, discipline: Some(Discipline::Electrical), can_view: true, can_edit: true },
                 AccessRule { account_id: "mep-water-01".into(), floor_id: None, discipline: Some(Discipline::Plumbing), can_view: true, can_edit: true },
             ],
+            progress: vec![
+                ScopeProgress { floor_id: 1, discipline: Discipline::Architecture, percent: 20, status: ScopeStatus::InProgress, updated_by: "local-owner".into() },
+                ScopeProgress { floor_id: 1, discipline: Discipline::Structure, percent: 10, status: ScopeStatus::InProgress, updated_by: "struct-01".into() },
+                ScopeProgress { floor_id: 1, discipline: Discipline::Electrical, percent: 0, status: ScopeStatus::NotStarted, updated_by: "mep-elec-01".into() },
+                ScopeProgress { floor_id: 1, discipline: Discipline::Plumbing, percent: 0, status: ScopeStatus::NotStarted, updated_by: "mep-water-01".into() },
+            ],
+            issues: Vec::new(),
+            next_issue_id: 1,
         }
     }
 }
 
 impl State {
+    fn ensure_progress_scope(&mut self, floor_id: u64, discipline: Discipline) {
+        if self.progress.iter().any(|p| p.floor_id == floor_id && p.discipline == discipline) {
+            return;
+        }
+        self.progress.push(ScopeProgress {
+            floor_id,
+            discipline,
+            percent: 0,
+            status: ScopeStatus::NotStarted,
+            updated_by: self.current_account_id.clone(),
+        });
+    }
+
+    fn create_issue_from_selection(&mut self, handle: Option<cadcraft_doc::Handle>, target_discipline: Discipline) {
+        self.issues.push(CoordinationIssue {
+            id: self.next_issue_id,
+            floor_id: self.active_floor_id,
+            source_discipline: self.active_discipline,
+            target_discipline,
+            handle,
+            assigned_to: self.users.iter().find(|u| u.discipline == target_discipline).map(|u| u.account_id.clone()).unwrap_or_default(),
+            description: "Kiểm tra phối hợp tại vị trí/đối tượng được chọn".into(),
+            status: IssueStatus::Open,
+        });
+        self.next_issue_id += 1;
+    }
+
     fn queue_update(&mut self, handle: cadcraft_doc::Handle, base_revision: u64, local_revision: u64) {
         let change = ChangeSet {
             id: self.next_change_set_id,
@@ -651,6 +746,35 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     });
 
     ui.separator();
+    ui.collapsing("Tiến độ thiết kế toàn dự án", |ui| {
+        let floor_ids = state.floors.iter().map(|f| f.id).collect::<Vec<_>>();
+        for floor_id in floor_ids {
+            for discipline in Discipline::ALL {
+                state.ensure_progress_scope(floor_id, discipline);
+            }
+        }
+        egui::Grid::new("bim_progress").striped(true).show(ui, |ui| {
+            ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("%"); ui.strong("Trạng thái"); ui.strong("Cập nhật bởi"); ui.end_row();
+            for progress in &mut state.progress {
+                ui.label(state.floors.iter().find(|f| f.id == progress.floor_id).map(|f| f.name.as_str()).unwrap_or("?"));
+                ui.label(progress.discipline.label());
+                ui.add(egui::Slider::new(&mut progress.percent, 0..=100));
+                let new_status = if progress.percent == 0 { ScopeStatus::NotStarted } else if progress.percent >= 100 { ScopeStatus::Complete } else if progress.status == ScopeStatus::Review { ScopeStatus::Review } else { ScopeStatus::InProgress };
+                progress.status = new_status;
+                egui::ComboBox::from_id_salt(("scope_status", progress.floor_id, progress.discipline.label()))
+                    .selected_text(progress.status.label())
+                    .show_ui(ui, |ui| {
+                        for status in [ScopeStatus::NotStarted, ScopeStatus::InProgress, ScopeStatus::Review, ScopeStatus::Complete] {
+                            ui.selectable_value(&mut progress.status, status, status.label());
+                        }
+                    });
+                ui.label(&progress.updated_by);
+                ui.end_row();
+            }
+        });
+    });
+
+    ui.separator();
     ui.horizontal(|ui| {
         ui.label("Chia màn hình:");
         for layout in [ViewLayout::One, ViewLayout::Two, ViewLayout::Three, ViewLayout::Four] {
@@ -661,6 +785,7 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     let slots = state.layout.slots();
     egui::Grid::new("bim_view_grid").num_columns(if slots == 1 { 1 } else { 2 }).spacing([8.0, 8.0]).show(ui, |ui| {
         for i in 0..slots {
+            let visible_count = state.viewport_entity_count(app, &state.views[i]);
             let slot = &mut state.views[i];
             ui.group(|ui| {
                 ui.set_min_width(320.0);
@@ -681,7 +806,6 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
                     });
                 ui.checkbox(&mut slot.show_other_users, "Hiển thị thiết kế của người khác");
                 ui.add(egui::Slider::new(&mut slot.overlay_opacity, 0.05..=1.0).text("Độ đậm overlay"));
-                let visible_count = state.viewport_entity_count(app, slot);
                 ui.label(format!("Đối tượng phù hợp bộ lọc: {}", visible_count));
                 ui.label(if i == 0 { "Viewport làm việc chính" } else { "Viewport phối hợp/xem trực tiếp" });
             });
@@ -690,6 +814,35 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
     });
 
     ui.separator();
+    ui.collapsing("Issue phối hợp / Coordination", |ui| {
+        let selected = app.session.selection().first().copied();
+        ui.horizontal(|ui| {
+            if ui.button("+ Issue sang Kết cấu").clicked() { state.create_issue_from_selection(selected, Discipline::Structure); }
+            if ui.button("+ Issue sang Điện").clicked() { state.create_issue_from_selection(selected, Discipline::Electrical); }
+            if ui.button("+ Issue sang Nước").clicked() { state.create_issue_from_selection(selected, Discipline::Plumbing); }
+            if ui.button("+ Issue sang HVAC").clicked() { state.create_issue_from_selection(selected, Discipline::Hvac); }
+        });
+        egui::Grid::new("bim_issues").striped(true).show(ui, |ui| {
+            ui.strong("ID"); ui.strong("Tầng"); ui.strong("Nguồn"); ui.strong("Đích"); ui.strong("Đối tượng"); ui.strong("Phụ trách"); ui.strong("Trạng thái"); ui.end_row();
+            for issue in &mut state.issues {
+                ui.label(issue.id.to_string());
+                ui.label(state.floors.iter().find(|f| f.id == issue.floor_id).map(|f| f.name.as_str()).unwrap_or("?"));
+                ui.label(issue.source_discipline.label());
+                ui.label(issue.target_discipline.label());
+                ui.label(issue.handle.map(|h| h.hex()).unwrap_or_else(|| "-".into()));
+                ui.text_edit_singleline(&mut issue.assigned_to);
+                egui::ComboBox::from_id_salt(("issue_status", issue.id))
+                    .selected_text(issue.status.label())
+                    .show_ui(ui, |ui| {
+                        for status in [IssueStatus::Open, IssueStatus::InProgress, IssueStatus::Resolved] {
+                            ui.selectable_value(&mut issue.status, status, status.label());
+                        }
+                    });
+                ui.end_row();
+            }
+        });
+    });
+
     ui.collapsing("Người đang làm việc / Presence", |ui| {
         egui::Grid::new("bim_presence").striped(true).show(ui, |ui| {
             ui.strong("Tài khoản"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Đang chọn"); ui.end_row();
@@ -740,6 +893,28 @@ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_progress_auto_creates_scope_and_completion_status() {
+        let mut state = State::default();
+        state.ensure_progress_scope(2, Discipline::Hvac);
+        let p = state.progress.iter_mut().find(|p| p.floor_id == 2 && p.discipline == Discipline::Hvac).unwrap();
+        p.percent = 100;
+        p.status = ScopeStatus::Complete;
+        assert_eq!(p.status, ScopeStatus::Complete);
+    }
+
+    #[test]
+    fn coordination_issue_is_created_in_active_floor_and_discipline() {
+        let mut state = State::default();
+        state.active_floor_id = 2;
+        state.active_discipline = Discipline::Architecture;
+        state.create_issue_from_selection(Some(cadcraft_doc::Handle(12)), Discipline::Structure);
+        assert_eq!(state.issues.len(), 1);
+        assert_eq!(state.issues[0].floor_id, 2);
+        assert_eq!(state.issues[0].source_discipline, Discipline::Architecture);
+        assert_eq!(state.issues[0].target_discipline, Discipline::Structure);
+    }
 
     #[test]
     fn detailed_scope_rule_controls_view_and_edit() {

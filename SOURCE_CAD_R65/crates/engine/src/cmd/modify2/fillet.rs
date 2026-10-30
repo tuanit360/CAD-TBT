@@ -176,6 +176,9 @@ pub(crate) fn fillet_polyline(s: &mut Session, h: Handle, r: f64) -> Result<usiz
         out.push(PolyVertex { p: t2, bulge: 0.0, ..v });
         count += 1;
     }
-    set_kind(s, h, EntityKind::LwPolyline(LwPolyline { vertices: out, ..pl.clone() }))?;
+    set_kind(s,h,EntityKind::LwPolyline(LwPolyline{vertices:out,..pl.clone()}))?;
+    if count>0 {
+        s.doc_mut()?.modify_entity(h,|e|crate::cmd::modify::bump_tbt360_bim_revision(&mut e.common,h))?;
+    }
     Ok(count)
 }

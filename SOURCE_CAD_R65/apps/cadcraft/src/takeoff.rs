@@ -346,6 +346,32 @@ fn scope_from_entity_or_active(app:&CadApp, handle:cadcraft_doc::Handle, active_
     }).unwrap_or_else(||active_scope.clone())
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct SourceValidation {
+    missing_source: usize,
+    scope_mismatch: usize,
+    valid_links: usize,
+}
+
+fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
+    let mut result=SourceValidation::default();
+    for record in &state.records {
+        let Some(handle_hex)=record.source_handle.as_deref() else { continue; };
+        let Some(handle)=cadcraft_doc::Handle::parse_hex(handle_hex) else { result.missing_source+=1; continue; };
+        let Ok(doc)=app.session.doc() else { result.missing_source+=1; continue; };
+        if doc.model.get(handle).is_none() { result.missing_source+=1; continue; }
+        if let Some(entity_scope)=crate::bim_collab::entity_scope(app,handle) {
+            let mismatch=record.scope.floor_id!=Some(entity_scope.floor_id)
+                || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
+                || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
+            if mismatch { result.scope_mismatch+=1; } else { result.valid_links+=1; }
+        } else {
+            result.valid_links+=1;
+        }
+    }
+    result
+}
+
 #[derive(Default)]
 struct BusinessQuantity {
     review_records: usize,
@@ -716,6 +742,16 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         });
     });
 
+    let source_validation=validate_sources(app,state);
+    if source_validation.missing_source>0 || source_validation.scope_mismatch>0 {
+        ui.colored_label(egui::Color32::YELLOW,format!(
+            "Liên kết nguồn QTO cần kiểm tra: {} record mất entity nguồn, {} record lệch BIM scope.",
+            source_validation.missing_source,source_validation.scope_mismatch
+        ));
+    } else if source_validation.valid_links>0 {
+        ui.label(format!("Liên kết nguồn QTO hợp lệ: {} record.",source_validation.valid_links));
+    }
+
     ui.separator();
     ui.horizontal(|ui| {
         if ui.button("Hoàn tác phép đo").clicked() { let _ = state.undo_measurement_change(); }
@@ -1023,6 +1059,14 @@ mod tests {
         let mut state=State::default();
         let bad=Scope{floor_id:Some(0),discipline:Some("ELEC".into()),owner_account_id:Some("u1".into())};
         assert!(state.add_measurement_scoped(MeasureKind::Count,Vec::new(),1.0,"DEVICE".into(),&bad).is_err());
+    }
+
+    #[test]
+    fn source_validation_default_has_no_false_errors() {
+        let validation=SourceValidation::default();
+        assert_eq!(validation.missing_source,0);
+        assert_eq!(validation.scope_mismatch,0);
+        assert_eq!(validation.valid_links,0);
     }
 
     #[test]

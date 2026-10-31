@@ -286,7 +286,7 @@ fn cutbase_asks_for_the_base_point_then_the_objects() {
 static WRITTEN: Mutex<Option<Drawing>> = Mutex::new(None);
 
 #[test]
-fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste() {
+fn system_clipboard_real_dxf_preserves_cad_geometry_layer_xdata_and_allocates_new_handle() {
     set_io(IoHooks {
         read: |bytes,name| cadcraft_io::read(bytes,name).map_err(|e|e.to_string()),
         write: |d,name| cadcraft_io::write(d,name).map_err(|e|e.to_string()),
@@ -294,11 +294,11 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     });
 
     let mut source=Drawing::new_metric();
-    let mut e=line(&mut source,"0",(0.0,0.0),(10.0,0.0));
+    let mut e=line(&mut source,"A-WALL",(0.0,0.0),(10.0,0.0));
     let old=e.handle;
     e.common.xdata=vec![
-        RawTag{code:1001,value:"TBT360_BIM".into()},
-        RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",old.hex())},
+        RawTag{code:1001,value:"TBT360_CAD".into()},
+        RawTag{code:1000,value:"work_code=BTCT;note=wall-axis".into()},
     ];
     source.model.push(e);
 
@@ -306,7 +306,7 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     a.open_drawing(source,"A",None);
     a.execute("copybase",&json!({"handles":[old.hex()],"base":[0,0]})).unwrap();
     let text=clipboard::system_text(&a).expect("real DXF clipboard text");
-    assert!(text.contains("TBT360_BIM"));
+    assert!(text.contains("TBT360_CAD"));
 
     let mut b=Session::empty();
     b.open_drawing(Drawing::new_metric(),"B",None);
@@ -315,10 +315,11 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
 
     let pasted=b.doc().unwrap().model.iter().next().unwrap();
     assert_ne!(pasted.handle,old);
-    let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
-    let payload=&pasted.common.xdata[at+1].value;
-    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"));
-    assert!(payload.contains(&format!("entity={}",pasted.handle.hex())));
+    assert_eq!(pasted.common.layer,"A-WALL");
+    let EntityKind::Line(line)=&pasted.kind else { panic!("expected LINE") };
+    assert!((line.b.x-line.a.x-10.0).abs()<1e-12 && (line.b.y-line.a.y).abs()<1e-12);
+    let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_CAD").unwrap();
+    assert_eq!(pasted.common.xdata[at+1].value,"work_code=BTCT;note=wall-axis");
 }
 
 #[test]

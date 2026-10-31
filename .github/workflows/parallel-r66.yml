@@ -78,12 +78,14 @@ jobs:
           $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
           if (!$main.Contains("mod takeoff;") -or !$main.Contains("takeoff::panel(ui, &self.cad")) { throw "Live native CAD QTO tool missing" }
           if (!$main.Contains("self.cad.ui(ui);")) { throw "Native CAD drawing workspace missing" }
-          foreach ($legacy in @("MainTab::Pdf", "MainTab::Model3d", "MainTab::BimCollab", "bim_collab::panel(ui")) {
-            if ($main.Contains($legacy)) { throw "Non-CAD standalone screen reintroduced: $legacy" }
+          foreach ($legacy in @("MainTab::Pdf", "MainTab::Model3d", "MainTab::BimCollab", "bim_collab::panel(ui)", "mod bim_collab;", "bim_collab_state")) {
+            if ($main.Contains($legacy)) { throw "Non-CAD standalone/runtime dependency reintroduced: $legacy" }
           }
+          $qto = Get-Content "apps/cadcraft/src/takeoff.rs" -Raw
+          if ($qto.Contains("crate::bim_collab::")) { throw "QTO must remain independent from BIM collaboration runtime" }
           Write-Host "R67 CAD-first user workflow passed"
 
-  lane-4-qto-bim:
+  lane-4-cad-qto:
     name: "4 - CAD QTO and object tools"
     runs-on: windows-latest
     defaults:
@@ -133,7 +135,7 @@ jobs:
 
   portable:
     name: "7 - Portable Windows x64"
-    needs: [lane-1-core, lane-2-io-xref, lane-3-ui, lane-4-qto-bim, lane-5-regression, lane-6-workspace]
+    needs: [lane-1-core, lane-2-io-xref, lane-3-ui, lane-4-cad-qto, lane-5-regression, lane-6-workspace]
     runs-on: windows-latest
     defaults:
       run:

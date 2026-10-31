@@ -1078,22 +1078,23 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let lf = scale.unwrap_or(1.0);
     let af = lf * lf;
 
+    let has_cad_selection = !app.session.selection().is_empty();
     ui.horizontal(|ui| {
-        if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
+        if ui.add_enabled(has_cad_selection, egui::Button::new("Thêm phép đo từ đối tượng chọn")).on_hover_text("Chọn đối tượng trực tiếp trên bản vẽ CAD trước khi đo").clicked() {
             let measurements=selected_measurements(app);
             for measurement in measurements {
                 let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
                 let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
             }
         }
-        if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
+        if ui.add_enabled(has_cad_selection, egui::Button::new("Đếm đối tượng đang chọn")).clicked() {
             let measurements=selected_count_measurements(app);
             for measurement in measurements {
                 let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
                 let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
             }
         }
-        if ui.button("Thêm QTO nested từ Block/Array đang chọn").clicked() {
+        if ui.add_enabled(has_cad_selection, egui::Button::new("Đo bóc Block/Array đang chọn")).clicked() {
             let roots=app.session.selection();
             for root in roots {
                 let candidates=nested_source_candidates(app,root);
@@ -1129,7 +1130,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     ui.separator();
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("native_qto_table").striped(true).min_col_width(105.0).show(ui, |ui| {
-            for heading in ["Layer", "Số đối tượng", "LINE", "ARC", "PLINE", "PLINE kín", "CIRCLE", "Khác/chưa đo"] {
+            for heading in ["Lớp", "Số đối tượng", "Đường thẳng", "Cung tròn", "Đa tuyến", "Vùng kín", "Hình tròn", "Chưa hỗ trợ"] {
                 ui.strong(heading);
             }
             ui.end_row();

@@ -1,0 +1,102 @@
+name: CAD360 R67 source backup and every-fifth installer
+
+on:
+  push:
+    branches: [integration/cad360-unified-r67]
+  workflow_dispatch:
+    inputs:
+      version_number:
+        description: 'Sequential release number, e.g. 67, 68, 69, 70'
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad360-backup-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  source-backup:
+    name: Save complete source ZIP for every revision
+    runs-on: windows-latest
+    outputs:
+      number: ${{ steps.version.outputs.number }}
+      installer: ${{ steps.version.outputs.installer }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Determine version and installer cadence
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED: ${{ inputs.version_number }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          $number = if ($env:REQUESTED -match '^\d+$') { [int]$env:REQUESTED } else { 67000 + [int]$env:BUILD_NUMBER }
+          "number=$number" >> $env:GITHUB_OUTPUT
+          "installer=$(if (($number % 5) -eq 0) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
+          Write-Host "CAD360 R67 backup number: $number, setup: $(($number % 5) -eq 0)"
+      - name: Create downloadable complete source snapshot
+        shell: pwsh
+        run: |
+          $number = "${{ steps.version.outputs.number }}"
+          $name = "CAD360_R67_Source_Revision_$number"
+          New-Item -ItemType Directory -Force -Path "backups" | Out-Null
+          git archive --format=zip --output="backups/$name.zip" HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Git source archive failed" }
+          "$number | ${{ github.sha }} | ${{ github.run_id }}" | Set-Content "backups/$name.txt"
+          if ((Get-Item "backups/$name.zip").Length -lt 10000) { throw "Archive empty" }
+          Get-FileHash "backups/$name.zip" -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Source_Revision_${{ steps.version.outputs.number }}
+          path: backups/*
+          if-no-files-found: error
+          retention-days: 90
+
+  setup-every-five:
+    name: Every fifth revision Windows Setup EXE
+    needs: source-backup
+    if: needs.source-backup.outputs.installer == 'true'
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Build unified desktop Rust executable
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli --target x86_64-pc-windows-msvc
+      - name: Build Inno Setup Windows installer
+        shell: pwsh
+        working-directory: .
+        run: |
+          $src = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $dest = "SOURCE_CAD_R65/target/release"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "$src/cadcraft.exe" "$dest/cadcraft.exe" -Force
+          Copy-Item "$src/cadcraft-cli.exe" "$dest/cadcraft-cli.exe" -Force
+          $compiler = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $compiler)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          & $compiler "/Qp" "installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Setup compiler failed" }
+          if (!(Test-Path "dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup not produced" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Setup_Revision_${{ needs.source-backup.outputs.number }}
+          path: dist/CAD360_VietNam_TBT_Setup.exe
+          if-no-files-found: error
+          retention-days: 90

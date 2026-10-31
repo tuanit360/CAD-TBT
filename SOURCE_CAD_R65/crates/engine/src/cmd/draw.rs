@@ -2612,7 +2612,7 @@ mod r18_tests {
 
     #[test]
     fn pointcloud_voxel_and_clipplane_are_non_destructive_filters() {
-        let mut s=Session::new(); s.new_doc();
+        let mut s=Session::new();
         run_pointcloud(&mut s,&json!({"name":"FILTERS","points":[[0,0,0],[0.1,0.1,0.1],[2,0,0],[-2,0,0]]})).unwrap();
         let v=run_pointcloud_voxel(&mut s,&json!({"name":"FILTERS","size":1.0})).unwrap();
         assert_eq!(v["visible"],3);
@@ -2718,7 +2718,7 @@ mod r30_tests {
         let fit=run_pointcloud_planefit(&mut s,&json!({"name":"PLANE"})).unwrap();
         assert_eq!(fit["count"],5); assert!(fit["rmsDeviation"].as_f64().unwrap()<0.01);
         let g=run_pointcloud_plane3d(&mut s,&json!({"name":"PLANE","margin":0.25})).unwrap();
-        let h=Handle::parse_hex(g["handle"].as_str().unwrap()).unwrap(); assert!(matches!(&s.doc().unwrap().entity(h).unwrap().kind,EntityKind::Face3d(_)));
+        let h=cadcraft_doc::Handle::parse_hex(g["handle"].as_str().unwrap()).unwrap(); assert!(matches!(&s.doc().unwrap().entity(h).unwrap().kind,EntityKind::Face3d(_)));
     }
 
     #[test] fn r31_pointcloud_density_copyvisible_and_facet_boundary_workflows(){

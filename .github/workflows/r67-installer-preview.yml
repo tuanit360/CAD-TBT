@@ -1,0 +1,70 @@
+name: CAD360 R67 Windows Installer Preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/r67-installer-preview]
+
+concurrency:
+  group: cad360-r67-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-installer-preview:
+    name: Build R67 Setup EXE (preview)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Compile unified CAD BIM QTO application
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli --target x86_64-pc-windows-msvc
+      - name: Prepare common installer and portable binaries
+        shell: pwsh
+        working-directory: .
+        run: |
+          $src = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $dst = "SOURCE_CAD_R65/target/release"
+          $portable = "portable/CAD360_VietNam_TBT_Win64"
+          New-Item -ItemType Directory -Force $dst, $portable | Out-Null
+          Copy-Item "$src/cadcraft.exe" "$dst/cadcraft.exe" -Force
+          Copy-Item "$src/cadcraft-cli.exe" "$dst/cadcraft-cli.exe" -Force
+          Copy-Item "$src/cadcraft.exe" "$portable/CAD360.exe" -Force
+          Copy-Item "$src/cadcraft-cli.exe" "$portable/cadcraft-cli.exe" -Force
+          & "$portable/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
+          "CAD360 R67 PREVIEW - CHUA NGHIEM THU / NOT VALIDATED." | Set-Content "$portable/README.txt" -Encoding UTF8
+          Compress-Archive -Path "$portable/*" -DestinationPath "portable/CAD360_R67_Preview_Portable_Win64.zip" -Force
+      - name: Compile Inno Setup installer
+        shell: pwsh
+        working-directory: .
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          & $iscc "/Qp" "installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compile failed" }
+          if (!(Test-Path "dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Missing Setup EXE" }
+      - name: Upload installer preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Setup_EXE_PREVIEW_UNVALIDATED
+          path: dist/CAD360_VietNam_TBT_Setup.exe
+          if-no-files-found: error
+      - name: Upload portable preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Portable_PREVIEW_UNVALIDATED
+          path: portable/CAD360_R67_Preview_Portable_Win64.zip
+          if-no-files-found: error

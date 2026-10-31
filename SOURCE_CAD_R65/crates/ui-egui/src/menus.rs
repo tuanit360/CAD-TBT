@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::CadApp;
 
 /// The top-level menus, in order.
-pub const MENUS: &[&str] = &["File", "Edit", "View", "Insert", "Format", "Tools", "Draw", "Dimension", "Modify", "3D", "Showcase", "Window", "Help"];
+pub const MENUS: &[&str] = &["File", "Edit", "View", "Insert", "Format", "Tools", "Draw", "Dimension", "Modify", "Window", "Help"];
 
 /// File ▸ Open Recent: one `ui.recent.<n>` item per recent file, then Clear Recent Files.
 pub const OPEN_RECENT: &str = "Open Recent";

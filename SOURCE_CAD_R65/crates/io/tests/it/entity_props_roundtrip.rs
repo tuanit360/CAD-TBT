@@ -92,6 +92,39 @@ fn arbitrary_entity_xdata_roundtrips_with_layer_and_geometry() {
     assert!((line.b.x-line.a.x-10.0).abs()<1e-12);
 }
 
+
+#[test]
+fn multi_record_polyline3d_keeps_xdata_on_primary_entity() {
+    let mut d = Drawing::new_metric();
+    let common = Common {
+        layer: "A-AXIS".into(),
+        xdata: vec![
+            RawTag { code: 1001, value: "TBT360_CAD_MULTI".into() },
+            RawTag { code: 1000, value: "source=axis-01".into() },
+        ],
+        ..Common::default()
+    };
+    let h = d.add(
+        &Space::Model,
+        common,
+        EntityKind::Polyline3d(Polyline3d {
+            points: vec![Vec3::new(0.0,0.0,0.0),Vec3::new(3.0,4.0,1.0),Vec3::new(6.0,4.0,2.0)],
+            closed: false,
+        }),
+    ).unwrap();
+
+    let text = write_dxf(&d);
+    let r = read_dxf(text.as_bytes()).expect("reopen");
+    let e = get(&r,h);
+    assert_eq!(e.common.layer,"A-AXIS");
+    assert_eq!(e.common.xdata,vec![
+        RawTag { code: 1001, value: "TBT360_CAD_MULTI".into() },
+        RawTag { code: 1000, value: "source=axis-01".into() },
+    ]);
+    let EntityKind::Polyline3d(poly)=&e.kind else { panic!("expected POLYLINE3D") };
+    assert_eq!(poly.points.len(),3);
+}
+
 #[test]
 fn point_angle_roundtrips() {
     let mut d = Drawing::new_metric();

@@ -1,6 +1,6 @@
 //! Live, read-only quantities from the canonical CAD drawing.
 //! Geometry changes are owned by the native CAD command/undo system.
-//! These are drawing-unit quantities, NOT validated BIM/IFC/steel QTO.
+//! These are drawing-unit quantities linked directly to CAD entities; no separate BIM runtime is required.
 use std::collections::BTreeMap;
 
 use cadcraft_doc::EntityKind;
@@ -1231,7 +1231,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     
     let scoped_groups=scoped_business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);
     egui::ScrollArea::horizontal().show(ui,|ui|{
-        egui::Grid::new("native_qto_bim_scope_summary").striped(true).show(ui,|ui|{
+        egui::Grid::new("native_qto_cad_scope_summary").striped(true).show(ui,|ui|{
             for h in ["Tầng","Bộ môn","Owner","Nhóm","Mã CT","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
             ui.end_row();
             for ((floor_id,discipline,owner,work_group,work_code),q) in &scoped_groups {
@@ -1875,7 +1875,7 @@ mod tests {
     }
 
     #[test]
-    fn scoped_measurement_roundtrip_preserves_bim_scope_and_separates_totals() {
+    fn scoped_measurement_roundtrip_preserves_cad_scope_and_separates_totals() {
         let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
         let floor1=Scope{floor_id:Some(1),discipline:Some("Kiến trúc".into()),owner_account_id:Some("u1".into())};
         let floor2=Scope{floor_id:Some(2),discipline:Some("Kiến trúc".into()),owner_account_id:Some("u1".into())};

@@ -1,0 +1,70 @@
+name: CAD360 R67 Package Current Snapshot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [integration/cad360-unified-r67]
+    paths: ['.github/workflows/package-r67-now.yml']
+
+jobs:
+  package:
+    name: "Package current R67 snapshot"
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Build CAD360 release binaries
+        working-directory: SOURCE_CAD_R65
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli --target x86_64-pc-windows-msvc
+      - name: Assemble portable Windows x64 package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $out = "portable/CAD360_VietNam_TBT_Win64"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "$bin/cadcraft.exe" "$out/CAD360.exe" -Force
+          Copy-Item "$bin/cadcraft-cli.exe" "$out/cadcraft-cli.exe" -Force
+          & "$out/cadcraft-cli.exe" --version
+          foreach ($name in @("CAD360.exe","cadcraft-cli.exe")) {
+            $exe = Join-Path $out $name
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $exe))
+            if ($bytes.Length -lt 100000 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Invalid Windows PE: $name" }
+            $offset = [BitConverter]::ToInt32($bytes,0x3C)
+            if ([BitConverter]::ToUInt32($bytes,$offset) -ne 0x4550 -or [BitConverter]::ToUInt16($bytes,$offset+4) -ne 0x8664) { throw "Invalid x64 architecture: $name" }
+          }
+          Get-ChildItem $out -Filter "*.exe" | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Set-Content "$out/SHA256SUMS.txt"
+          "CAD360 Viet Nam - TBT R67 snapshot. Run CAD360.exe." | Set-Content "$out/README.txt" -Encoding UTF8
+          Compress-Archive -Path "$out/*" -DestinationPath "portable/CAD360_VietNam_TBT_Portable_Win64.zip" -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Portable_Win64
+          path: portable/CAD360_VietNam_TBT_Portable_Win64.zip
+          if-no-files-found: error
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $src = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $dst = "SOURCE_CAD_R65/target/release"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "$src/cadcraft.exe" "$dst/cadcraft.exe" -Force
+          Copy-Item "$src/cadcraft-cli.exe" "$dst/cadcraft-cli.exe" -Force
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup --yes --no-progress }
+          & $iscc "/Qp" "installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+          if (!(Test-Path "dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE was not generated" }
+          Get-FileHash "dist/CAD360_VietNam_TBT_Setup.exe" -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Windows_Setup_EXE
+          path: dist/CAD360_VietNam_TBT_Setup.exe
+          if-no-files-found: error

@@ -156,6 +156,11 @@ impl eframe::App for App {
                     if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
                 }
             });
+            ui.menu_button("Đối tượng", |ui| {
+                for (label, cmd) in [("Thuộc tính đối tượng", "properties"), ("Quản lý lớp", "layer"), ("Liệt kê thuộc tính", "list"), ("Xóa đối tượng", "erase")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
             ui.separator();
             if ui.selectable_label(self.active_tab == MainTab::Takeoff, "Đo bóc CAD").clicked() {
                 self.active_tab = if self.active_tab == MainTab::Takeoff { MainTab::Cad } else { MainTab::Takeoff };
@@ -173,6 +178,17 @@ impl eframe::App for App {
                         ui.heading("Đo bóc từ đối tượng CAD");
                         if ui.small_button("Đóng").clicked() { self.active_tab = MainTab::Cad; }
                     });
+                    ui.separator();
+                    let selected = self.cad.session.selection();
+                    ui.label(egui::RichText::new(format!("Đang chọn {} đối tượng trên bản vẽ", selected.len())).strong());
+                    if let Ok(drawing) = self.cad.session.doc() {
+                        for handle in selected.iter().take(8) {
+                            if let Some(entity) = drawing.entity(*handle) {
+                                ui.label(format!("{} · Lớp {}", handle.hex(), entity.common.layer));
+                            }
+                        }
+                        if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }
+                    }
                     ui.separator();
                     let qto_scope = takeoff::Scope {
                         floor_id: Some(self.bim_collab_state.active_floor_id),

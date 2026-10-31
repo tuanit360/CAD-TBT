@@ -906,12 +906,15 @@ pub(crate) fn finish(tags: &mut Vec<Tag>, d: &Drawing) {
             }
             path.push(cur.clone());
             let Some(owner) = owners.get(&cur).cloned() else { break false };
+            // A foreign dictionary/object chain that reaches the file's Named Object Dictionary
+            // is alive. Check this before following `objs`: the old NOD itself can also be present
+            // in f.objects, and following it to owner 0 would incorrectly kill every child chain.
+            if nod.contains(&owner) {
+                break dict_entries.get(&cur).is_some_and(|k| !root_keys.contains(&up(k))) && root.is_some();
+            }
             if objs.contains_key(&owner) {
                 cur = owner;
                 continue;
-            }
-            if nod.contains(&owner) {
-                break dict_entries.get(&cur).is_some_and(|k| !root_keys.contains(&up(k))) && root.is_some();
             }
             if attached.contains(&cur) {
                 break true;

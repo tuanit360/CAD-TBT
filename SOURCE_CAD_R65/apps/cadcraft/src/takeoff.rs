@@ -220,23 +220,14 @@ impl State {
                 measurements_for_handle(app,handle)
             };
             if !measurements.iter().any(|m|m.kind==record.kind && geometry_signature(m)==expected) { continue; }
-            if let Some(scope)=crate::bim_collab::entity_scope(app,handle) {
-                if record.scope.floor_id!=Some(scope.floor_id)
-                    || record.scope.discipline.as_deref()!=Some(scope.discipline.as_str())
-                    || record.scope.owner_account_id.as_deref()!=Some(scope.owner_account_id.as_str()) { continue; }
-            } else if record.scope.floor_id.is_some() || record.scope.discipline.is_some() || record.scope.owner_account_id.is_some() {
-                continue;
-            }
             candidates.push(handle);
             if candidates.len()>1 { break; }
         }
         if candidates.len()!=1 { return Ok(false); }
         let handle=candidates[0];
-        let source_scope=crate::bim_collab::entity_scope(app,handle);
-        let revision=source_scope.as_ref().map(|x|x.revision);
         self.snapshot();
         self.records[index].source_handle=Some(handle.hex());
-        self.records[index].source_revision=revision;
+        self.records[index].source_revision=None;
         self.audit_change(id,"RELINK_SOURCE",record.source_handle,Some(handle.hex()));
         Ok(true)
     }
@@ -271,16 +262,13 @@ impl State {
             measurements_for_handle(app,handle).into_iter().find(|m|m.kind==kind).ok_or_else(||"Entity nguồn không còn hỗ trợ loại phép đo này".to_string())?
         };
         let old=self.records[index].clone();
-        let source_scope=crate::bim_collab::entity_scope(app,handle);
-        let scope=source_scope.as_ref().map(|x|Scope{floor_id:Some(x.floor_id),discipline:Some(x.discipline.clone()),owner_account_id:Some(x.owner_account_id.clone())}).unwrap_or_else(||old.scope.clone());
-        let revision=source_scope.map(|x|x.revision);
         let signature=geometry_signature(&current);
         self.snapshot();
         self.records[index].points=current.points;
         self.records[index].raw_value=current.raw_value;
         self.records[index].layer=current.layer;
-        self.records[index].scope=scope;
-        self.records[index].source_revision=revision;
+        self.records[index].scope=old.scope.clone();
+        self.records[index].source_revision=None;
         self.records[index].source_geometry_signature=Some(signature);
         self.records[index].status=MeasureStatus::Review;
         self.audit_change(id,"REFRESH_SOURCE",
@@ -494,12 +482,12 @@ impl State {
             let scope_value=item.get("scope");
             let floor_id=scope_value.and_then(|v|v.get("floor_id")).and_then(serde_json::Value::as_u64);
             let discipline=match scope_value.and_then(|v|v.get("discipline")).and_then(serde_json::Value::as_str) {
-                Some(value)=>Some(normalize_discipline(value).ok_or_else(||"Measurement BIM discipline không hợp lệ".to_string())?),
+                Some(value)=>Some(normalize_discipline(value).ok_or_else(||"Measurement discipline không hợp lệ".to_string())?),
                 None=>None,
             };
             let owner_account_id=scope_value.and_then(|v|v.get("owner_account_id")).and_then(serde_json::Value::as_str).map(str::to_string);
             if floor_id==Some(0) || discipline.as_deref().is_some_and(|v|v.trim().is_empty()) || owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) {
-                return Err("Measurement BIM scope không hợp lệ".into());
+                return Err("Measurement scope không hợp lệ".into());
             }
             let source_handle=item.get("source_handle").and_then(serde_json::Value::as_str).map(str::to_string);
             if source_handle.as_deref().is_some_and(|h|cadcraft_doc::Handle::parse_hex(h).is_none()) { return Err("Measurement source_handle không hợp lệ".into()); }
@@ -570,12 +558,8 @@ fn geometry_signature(measurement:&PendingMeasurement)->String {
     out
 }
 
-fn scope_from_entity_or_active(app:&CadApp, handle:cadcraft_doc::Handle, active_scope:&Scope)->(Scope,Option<u64>) {
-    crate::bim_collab::entity_scope(app,handle).map(|scope|(Scope {
-        floor_id:Some(scope.floor_id),
-        discipline:Some(scope.discipline),
-        owner_account_id:Some(scope.owner_account_id),
-    },Some(scope.revision))).unwrap_or_else(||(active_scope.clone(),None))
+fn scope_from_entity_or_active(_app:&CadApp, _handle:cadcraft_doc::Handle, active_scope:&Scope)->(Scope,Option<u64>) {
+    (active_scope.clone(),None)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -625,25 +609,9 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
             !current_measurements.iter().any(|measurement|measurement.kind==record.kind&&geometry_signature(measurement)==*expected)
         });
 
-        if let Some(entity_scope)=crate::bim_collab::entity_scope(app,handle) {
-            let mismatch=record.scope.floor_id!=Some(entity_scope.floor_id)
-                || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
-                || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
-            let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
-            let identity_collision=entity_scope.entity_handle.is_some_and(|identity|identity!=handle&&doc.model.get(identity).is_some());
-            if mismatch {
-                result.scope_mismatch+=1;result.invalid_record_ids.insert(record.id);
-            } else if identity_collision {
-                result.identity_collision+=1;result.invalid_record_ids.insert(record.id);
-            } else if geometry_stale {
-                result.stale_geometry+=1;result.invalid_record_ids.insert(record.id);
-            } else if stale&&record.source_geometry_signature.is_none() {
-                result.stale_revision+=1;result.invalid_record_ids.insert(record.id);
-            } else {
-                result.valid_links+=1;
-            }
-        } else if geometry_stale {
-            result.stale_geometry+=1;result.invalid_record_ids.insert(record.id);
+        if geometry_stale {
+            result.stale_geometry+=1;
+            result.invalid_record_ids.insert(record.id);
         } else {
             result.valid_links+=1;
         }
@@ -1151,7 +1119,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let source_validation=validate_sources(app,state);
     if source_validation.missing_source>0 || source_validation.scope_mismatch>0 || source_validation.stale_revision>0 || source_validation.stale_geometry>0 || source_validation.identity_collision>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
-            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry, {} trùng BIM identity.",
+            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry, {} trùng định danh nguồn.",
             source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry,source_validation.identity_collision
         ));
         if source_validation.missing_source>0 && ui.button("Tự relink nguồn bị mất (chỉ khi khớp duy nhất)").clicked() {
@@ -1200,11 +1168,11 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     ui.label(&record.work_code);
                     ui.label(&record.description);
                     ui.label(format!("{value:.3} {unit}"));
-                    ui.label(match record.status { MeasureStatus::Review=>"Review", MeasureStatus::Confirmed=>"Đã xác nhận", MeasureStatus::Excluded=>"Loại" });
+                    ui.label(match record.status { MeasureStatus::Review=>"Chờ xác nhận", MeasureStatus::Confirmed=>"Đã xác nhận", MeasureStatus::Excluded=>"Loại" });
                     ui.horizontal(|ui| {
                         if ui.small_button("✓").on_hover_text("Xác nhận").clicked() { action=Some((record.id,1)); }
                         if ui.small_button("⊘").on_hover_text("Loại khỏi khối lượng").clicked() { action=Some((record.id,2)); }
-                        if ui.small_button("↻").on_hover_text("Cập nhật lại từ entity CAD/BIM nguồn").clicked() { action=Some((record.id,5)); }
+                        if ui.small_button("↻").on_hover_text("Cập nhật lại từ đối tượng CAD nguồn").clicked() { action=Some((record.id,5)); }
                         if ui.small_button("✎").on_hover_text("Sửa mã công tác / diễn giải / ghi chú").clicked() { action=Some((record.id,4)); }
                         if ui.small_button("×").on_hover_text("Xóa phép đo").clicked() { action=Some((record.id,3)); }
                     });
@@ -1256,9 +1224,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     }
 
     ui.separator();
-    ui.strong("Tổng hợp theo BIM Scope");
+    ui.strong("Tổng hợp theo phạm vi CAD");
     if !source_validation.invalid_record_ids.is_empty() {
-        ui.colored_label(egui::Color32::YELLOW,format!("{} record liên kết nguồn không hợp lệ đang bị loại khỏi khối lượng BIM xác nhận.",source_validation.invalid_record_ids.len()));
+        ui.colored_label(egui::Color32::YELLOW,format!("{} record liên kết nguồn không hợp lệ đang bị loại khỏi khối lượng đã xác nhận.",source_validation.invalid_record_ids.len()));
     }
     
     let scoped_groups=scoped_business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);

@@ -733,7 +733,7 @@ fn count_measurement_for_handle(app:&CadApp,handle:cadcraft_doc::Handle)->Option
 
 fn selected_count_measurements(app: &CadApp) -> Vec<PendingMeasurement> {
     let selected = app.session.selection();
-    let Ok(drawing) = app.session.doc() else { return Vec::new(); };
+    if app.session.doc().is_err() { return Vec::new(); }
     let mut out=Vec::new();
     for handle in selected {
         let Some(measurement)=count_measurement_for_handle(app,handle) else { continue; };

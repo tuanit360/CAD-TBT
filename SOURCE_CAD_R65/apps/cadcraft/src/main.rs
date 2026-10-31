@@ -157,7 +157,7 @@ impl eframe::App for App {
                 }
             });
             ui.menu_button("Đối tượng", |ui| {
-                for (label, cmd) in [("Thuộc tính đối tượng", "properties"), ("Quản lý lớp", "layer"), ("Liệt kê thuộc tính", "list"), ("Xóa đối tượng", "erase")] {
+                for (label, cmd) in [("Bảng thuộc tính", "ui.panel.properties"), ("Quản lý lớp", "ui.dialog.layers"), ("Chọn nhanh", "ui.dialog.qselect"), ("Liệt kê thuộc tính", "list"), ("Xóa đối tượng", "erase")] {
                     if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
                 }
             });

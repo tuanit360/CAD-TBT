@@ -138,41 +138,62 @@ impl eframe::App for App {
         cadcraft_ui_egui::cmdline::capture_tab(ctx, raw);
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // R67 has exactly one CAD workspace. QTO/BIM/IFC/PDF are docked tool palettes,
+        // never separate full-screen pages that replace the native drawing canvas.
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.active_tab, MainTab::Cad, "CAD");
-            ui.selectable_value(&mut self.active_tab, MainTab::Takeoff, "ĐO BÓC");
-            ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
+            ui.label(egui::RichText::new("CAD360  |  WORKSPACE").strong());
+            ui.separator();
+            ui.selectable_value(&mut self.active_tab, MainTab::Cad, "Bản vẽ");
+            ui.selectable_value(&mut self.active_tab, MainTab::Takeoff, "Đo bóc");
+            ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF");
             ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
-            ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
+            ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM");
         });
         ui.separator();
-        match self.active_tab {
-            MainTab::Cad => {
-                self.cad.ui(ui);
-                bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
-            }
-            MainTab::Takeoff => {
-                ui.columns(2, |columns| {
-                    self.cad.ui(&mut columns[0]);
-                    bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
-                    let qto_scope=takeoff::Scope {
-                        floor_id: Some(self.bim_collab_state.active_floor_id),
-                        discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
-                        owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
-                    };
-                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state, &qto_scope);
+        if self.active_tab != MainTab::Cad {
+            egui::SidePanel::right("r67_unified_tools")
+                .resizable(true)
+                .default_width(420.0)
+                .min_width(320.0)
+                .max_width(720.0)
+                .show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading(match self.active_tab {
+                            MainTab::Takeoff => "Đo bóc khối lượng",
+                            MainTab::Pdf => "PDF / Bản vẽ",
+                            MainTab::Model3d => "3D / IFC",
+                            MainTab::BimCollab => "BIM cộng tác",
+                            MainTab::Cad => "Công cụ",
+                        });
+                        if ui.small_button("Đóng").clicked() { self.active_tab = MainTab::Cad; }
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical().id_salt("r67_docked_tool_scroll").show(ui, |ui| {
+                        match self.active_tab {
+                            MainTab::Takeoff => {
+                                let qto_scope = takeoff::Scope {
+                                    floor_id: Some(self.bim_collab_state.active_floor_id),
+                                    discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
+                                    owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
+                                };
+                                takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
+                            }
+                            MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
+                            MainTab::Pdf => {
+                                ui.label("Sử dụng công cụ PDF trong bản vẽ CAD. Trình chỉnh sửa nhiều trang native chưa hoàn tất.");
+                                ui.label("Không thay thế vùng vẽ CAD bằng trang thông báo.");
+                            }
+                            MainTab::Model3d => {
+                                ui.label("Sử dụng công cụ 3D của CAD và thiết lập BIM ngay trên bản vẽ.");
+                                ui.label("IFC viewer riêng chưa được xác nhận hoàn tất.");
+                            }
+                            MainTab::Cad => {}
+                        }
+                    });
                 });
-            }
-            MainTab::Pdf => {
-                ui.heading("PDF / BẢN VẼ");
-                ui.label("Khu vực tích hợp PDF nhiều trang, hiệu chỉnh theo trang, overlay và annotation. Chức năng đang được chuyển từ QTO R134 sang native.");
-            }
-            MainTab::Model3d => {
-                ui.heading("3D / IFC");
-                ui.label("Khu vực tích hợp IFC/Solid/Volume và đối chiếu khối lượng 2D/3D. Chưa được đánh dấu hoàn thành.");
-            }
-            MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
         }
+        self.cad.ui(ui);
+        bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
     }

@@ -72,18 +72,16 @@ jobs:
         run: |
           $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
           if ($main -notmatch "CAD 360 Việt Nam - TBT") { throw "CAD360 product title missing" }
-      - name: Verify one unified CAD + BIM + QTO application
+      - name: Verify CAD-only workspace and direct drawing QTO integration
         shell: pwsh
         run: |
           $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
-          foreach ($module in @("mod takeoff;", "mod bim_collab;", "mod bim_clash;", "mod bim_federation;", "mod bim_coordinates;", "mod bim_workset;")) {
-            if (!$main.Contains($module)) { throw "R67 module missing from single entrypoint: $module" }
+          if (!$main.Contains("mod takeoff;") -or !$main.Contains("takeoff::panel(ui, &self.cad")) { throw "Live native CAD QTO tool missing" }
+          if (!$main.Contains("self.cad.ui(ui);")) { throw "Native CAD drawing workspace missing" }
+          foreach ($legacy in @("MainTab::Pdf", "MainTab::Model3d", "MainTab::BimCollab", "bim_collab::panel(ui")) {
+            if ($main.Contains($legacy)) { throw "Non-CAD standalone screen reintroduced: $legacy" }
           }
-          foreach ($tab in @("MainTab::Cad", "MainTab::Takeoff", "MainTab::Pdf", "MainTab::Model3d", "MainTab::BimCollab")) {
-            if (!$main.Contains($tab)) { throw "R67 unified navigation missing: $tab" }
-          }
-          if (!(Test-Path "apps/cadcraft/src/takeoff.rs") -or !(Test-Path "apps/cadcraft/src/bim_collab.rs")) { throw "CAD/BIM/QTO entrypoint files missing" }
-          Write-Host "R67 CAD/BIM/QTO single-entrypoint source gate passed"
+          Write-Host "R67 CAD-first user workflow passed"
 
   lane-4-qto-bim:
     name: "4 - QTO and BIM"

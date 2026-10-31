@@ -25,19 +25,6 @@ mod spacemouse;
 mod system_animations;
 mod workspace;
 mod takeoff;
-mod bim_collab;
-mod bim_sync;
-mod bim_domain;
-mod bim_presence;
-mod bim_federation;
-mod bim_api;
-mod bim_offline;
-mod bim_workset;
-mod bim_access;
-mod bim_coordinates;
-mod bim_viewport;
-mod bim_coordination;
-mod bim_clash;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};
@@ -53,7 +40,6 @@ struct App {
     cad: CadApp,
     active_tab: MainTab,
     takeoff_state: takeoff::State,
-    bim_collab_state: bim_collab::State,
     spacemouse: spacemouse::SpaceMouse,
     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
     desktop_theme: desktop_theme::DesktopTheme,
@@ -103,7 +89,6 @@ impl eframe::App for App {
     /// eframe logic callback: syncs the OS animation setting and runs `CadApp::logic`; when the pass index is 0 (the first pass or a hidden tick) it also installs/polls the macOS native menu, polls the spacemouse and persists the workspace; a quit request closes the viewport.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.cad.system_animations = self.system_animations.current();
-        bim_collab::sync_render_filters(&mut self.cad, &self.bim_collab_state);
         // Consume control/open/screenshot queues and time-based autosave, including hidden ticks.
         self.cad.logic(ctx);
         // Host frame work runs here, once per frame, and so also on a hidden logic-only tick (which
@@ -187,11 +172,7 @@ impl eframe::App for App {
                     if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }
                 }
                 ui.separator();
-                let qto_scope = takeoff::Scope {
-                    floor_id: Some(self.bim_collab_state.active_floor_id),
-                    discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
-                    owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
-                };
+                let qto_scope = takeoff::Scope::default();
                 egui::ScrollArea::vertical().id_salt("r67_qto_scroll").show(ui, |ui| {
                     takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
                 });
@@ -199,7 +180,6 @@ impl eframe::App for App {
         } else {
             self.cad.ui(ui);
         }
-        bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
     }
@@ -496,7 +476,6 @@ fn main() -> eframe::Result {
                 cad: app,
                 active_tab: MainTab::default(),
                 takeoff_state: takeoff::State::default(),
-                bim_collab_state: bim_collab::State::default(),
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,

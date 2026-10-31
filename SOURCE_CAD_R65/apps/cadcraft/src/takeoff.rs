@@ -1741,16 +1741,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_collision_policy_only_blocks_when_original_identity_still_exists() {
-        let current=cadcraft_doc::Handle(0x55);
-        let claimed=cadcraft_doc::Handle(0x2A);
-        let original_still_exists=true;
-        assert!(claimed!=current && original_still_exists);
-        let original_still_exists=false;
-        assert!(!(claimed!=current && original_still_exists));
-    }
-
-    #[test]
     fn source_state_labels_legacy_ok_and_stale_records() {
         let mut state=State::default();
         let legacy=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"A".into()).unwrap();

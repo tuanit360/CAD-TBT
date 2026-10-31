@@ -642,6 +642,16 @@ pub(super) fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: boo
         // Writing them here as well duplicates the record and leaves stale raw pointers.
         EntityKind::Unknown(_) => {}
     }
+    // Preserve arbitrary application XDATA carried by modeled CAD entities. The reader already
+    // filters CADCraft-owned payloads into their native model fields, so common.xdata contains
+    // foreign/user metadata that must survive Save/Open and system clipboard DXF round-trips.
+    if !matches!(e.kind, EntityKind::Unknown(_)) {
+        for raw in &e.common.xdata {
+            if raw.code >= 1000 {
+                w.t.push(crate::dxf_raw::tag(raw));
+            }
+        }
+    }
 }
 
 /// A multileader for a file older than 2007 (no MULTILEADER): a LEADER per leader line, ending

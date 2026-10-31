@@ -303,7 +303,7 @@ pub(super) fn run_vpclip(s: &mut Session, p: &Value) -> Result<Value> {
     let vh = *hs.first().ok_or_else(|| bad(cmd, "no viewport given (pass `handle` or select a viewport)"))?;
     let Some(EntityKind::Viewport(cur)) = d.entity(vh).map(|e| e.kind.clone()) else { return Err(bad(cmd, "not a viewport")) };
     let old = cur.clip.filter(|b| *b != vh);
-    if let Some(offset) = p.get("offset") {
+    if p.get("offset").is_some() {
         let delta = point_param(p, "offset").ok_or_else(|| bad(cmd, "`offset` must be [dx, dy]"))?;
         let boundary = old.ok_or_else(|| bad(cmd, "the viewport is not clipped"))?;
         let mode = str_param(p, "move").unwrap_or("boundary").trim().to_ascii_lowercase();

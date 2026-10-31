@@ -166,7 +166,17 @@ impl eframe::App for App {
                 if let Ok(drawing) = self.cad.session.doc() {
                     for handle in selected.iter().take(8) {
                         if let Some(entity) = drawing.model.get(*handle) {
-                            ui.label(format!("{} · Lớp {}", handle.hex(), entity.common.layer));
+                            let kind = match &entity.kind {
+                                cadcraft_doc::EntityKind::Line(_) => "Đường thẳng",
+                                cadcraft_doc::EntityKind::Arc(_) => "Cung tròn",
+                                cadcraft_doc::EntityKind::Circle(_) => "Đường tròn",
+                                cadcraft_doc::EntityKind::LwPolyline(_) => "Đa tuyến",
+                                cadcraft_doc::EntityKind::Polyline3d(_) => "Đa tuyến 3D",
+                                cadcraft_doc::EntityKind::Insert(_) => "Khối",
+                                cadcraft_doc::EntityKind::Hatch(_) => "Mặt cắt",
+                                _ => "Đối tượng",
+                            };
+                            ui.label(format!("{} · {} · Lớp {}", handle.hex(), kind, entity.common.layer));
                         }
                     }
                     if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }

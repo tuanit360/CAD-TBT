@@ -176,7 +176,7 @@ impl ArrayParams {
         let nums = match &self.kind {
             ArrayKind::Rect(r) => [r.col_spacing, r.row_spacing, r.axis_angle, r.row_elevation, 0.0, 0.0],
             ArrayKind::Polar(p) => [p.center.x, p.center.y, p.fill, p.row_spacing, p.row_elevation, 0.0],
-            ArrayKind::Path(p) => [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ArrayKind::Path(_p) => [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         };
         a >= 1
             && b >= 1

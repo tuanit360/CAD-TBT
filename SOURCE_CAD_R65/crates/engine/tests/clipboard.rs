@@ -285,13 +285,20 @@ fn cutbase_asks_for_the_base_point_then_the_objects() {
 /// A stand-in for the DXF writer and reader: "writes" the drawing to memory.
 static WRITTEN: Mutex<Option<Drawing>> = Mutex::new(None);
 
-#[test]
-fn system_clipboard_real_dxf_preserves_cad_geometry_layer_xdata_and_allocates_new_handle() {
+fn install_real_clipboard_io() {
     set_io(IoHooks {
         read: |bytes,name| cadcraft_io::read(bytes,name).map_err(|e|e.to_string()),
-        write: |d,name| cadcraft_io::write(d,name).map_err(|e|e.to_string()),
+        write: |d,name| {
+            *WRITTEN.lock().unwrap() = Some(d.clone());
+            cadcraft_io::write(d,name).map_err(|e|e.to_string())
+        },
         plot: None,
     });
+}
+
+#[test]
+fn system_clipboard_real_dxf_preserves_cad_geometry_layer_xdata_and_allocates_new_handle() {
+    install_real_clipboard_io();
 
     let mut source=Drawing::new_metric();
     let mut e=line(&mut source,"A-WALL",(0.0,0.0),(10.0,0.0));
@@ -324,21 +331,7 @@ fn system_clipboard_real_dxf_preserves_cad_geometry_layer_xdata_and_allocates_ne
 
 #[test]
 fn clipboard_travels_as_text() {
-    set_io(IoHooks {
-        read: |bytes, _| {
-            if bytes.starts_with(b"0\nSECTION") {
-                WRITTEN.lock().unwrap().clone().ok_or_else(|| "nothing written".into())
-            } else {
-                Err("not DXF".into())
-            }
-        },
-        write: |d, name| {
-            assert!(name.ends_with(".dxf"));
-            *WRITTEN.lock().unwrap() = Some(d.clone());
-            Ok(b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n".to_vec())
-        },
-        plot: None,
-    });
+    install_real_clipboard_io();
     let mut s = Session::empty();
     let a = s.open_drawing(drawing_a(), "A", None);
     s.execute("copybase", &json!({ "handles": handles(&s), "base": [10, 0] })).unwrap();

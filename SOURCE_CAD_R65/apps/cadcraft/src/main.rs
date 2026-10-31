@@ -180,7 +180,7 @@ impl eframe::App for App {
                 ui.label(egui::RichText::new(format!("Đang chọn {} đối tượng trên bản vẽ", selected.len())).strong());
                 if let Ok(drawing) = self.cad.session.doc() {
                     for handle in selected.iter().take(8) {
-                        if let Some(entity) = drawing.entity(*handle) {
+                        if let Some(entity) = drawing.model.get(*handle) {
                             ui.label(format!("{} · Lớp {}", handle.hex(), entity.common.layer));
                         }
                     }

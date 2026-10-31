@@ -148,7 +148,7 @@ fn clipped_viewport_boundary_and_frame_move_independently() {
     let mut s = session();
     let r = s.execute("mview", &json!({"p1": [0, 0], "p2": [100, 100]})).unwrap();
     let vh = r["viewports"][0].as_str().unwrap().to_string();
-    s.execute("vpclip", &json!({"handle": vh, "points": [[10, 10], [90, 10], [90, 90], [10, 90]})).unwrap();
+    s.execute("vpclip", &json!({"handle": vh, "points": [[10, 10], [90, 10], [90, 90], [10, 90]]})).unwrap();
     let before = viewport(&s, &vh);
     let clip = before.clip.unwrap();
     let clip_before = s.doc().unwrap().entity(clip).unwrap().clone();

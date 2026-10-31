@@ -137,13 +137,31 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // CAD 2D is the only workspace. A tool appears only if it acts on CAD entities.
         // QTO reads the live CadApp selection/model; no empty PDF/IFC or standalone BIM tabs.
+        let mut cad_command: Option<&'static str> = None;
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("CAD 360 Việt Nam - TBT").strong());
             ui.separator();
-            if ui.selectable_label(self.active_tab == MainTab::Takeoff, "Đo bóc trực tiếp trên CAD").clicked() {
+            ui.menu_button("Vẽ", |ui| {
+                for (label, cmd) in [("Đường thẳng", "line"), ("Đa tuyến", "pline"), ("Đường tròn", "circle"), ("Cung tròn", "arc"), ("Hình chữ nhật", "rectang")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
+            ui.menu_button("Hiệu chỉnh", |ui| {
+                for (label, cmd) in [("Di chuyển", "move"), ("Sao chép", "copy"), ("Xoay", "rotate"), ("Đối xứng", "mirror"), ("Dịch song song", "offset"), ("Cắt xén", "trim"), ("Kéo dài", "extend")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
+            ui.menu_button("Chọn & đo", |ui| {
+                for (label, cmd) in [("Chọn tất cả", "selectall"), ("Bỏ chọn", "ai_deselect"), ("Đo khoảng cách", "dist"), ("Đo diện tích", "area"), ("Thu phóng toàn bộ", "zoom")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
+            ui.separator();
+            if ui.selectable_label(self.active_tab == MainTab::Takeoff, "Đo bóc CAD").clicked() {
                 self.active_tab = if self.active_tab == MainTab::Takeoff { MainTab::Cad } else { MainTab::Takeoff };
             }
         });
+        if let Some(cmd) = cad_command { self.cad.start(cmd); }
         if self.active_tab == MainTab::Takeoff {
             egui::SidePanel::right("r67_cad_qto_tools")
                 .resizable(true)

@@ -70,7 +70,7 @@ fn raw(t: &Tag) -> RawTag {
 
 /// A kept group with the value type its code has (so binary output encodes it right); text that
 /// doesn't parse as that type stays text.
-fn tag(r: &RawTag) -> Tag {
+pub(crate) fn tag(r: &RawTag) -> Tag {
     use cadcraft_dxf::{Kind, Value, kind_of};
     let v = r.value.trim();
     let value = match kind_of(r.code) {

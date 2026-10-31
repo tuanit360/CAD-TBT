@@ -55,8 +55,10 @@ impl Session {
             (Ok(v), Some((doc, sel, uid))) if spec.undoable => self.refuse_non_finite(Some(*uid), doc, sel, spec.id).map(|()| v),
             (r, _) => r,
         };
+        let succeeded = result.is_ok();
         let grouped = self.lisp_groups_undo();
-        if spec.undoable
+        if succeeded
+            && spec.undoable
             && let Some((doc, sel, uid)) = before
             && let Some(st) = self.docs.iter_mut().find(|d| d.uid == uid)
             && !Arc::ptr_eq(&doc, &st.doc)

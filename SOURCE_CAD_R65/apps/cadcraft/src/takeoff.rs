@@ -565,10 +565,7 @@ fn scope_from_entity_or_active(_app:&CadApp, _handle:cadcraft_doc::Handle, activ
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct SourceValidation {
     missing_source: usize,
-    scope_mismatch: usize,
-    stale_revision: usize,
     stale_geometry: usize,
-    identity_collision: usize,
     valid_links: usize,
     invalid_record_ids: std::collections::BTreeSet<u64>,
 }
@@ -1117,10 +1114,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
 
     let source_validation=validate_sources(app,state);
-    if source_validation.missing_source>0 || source_validation.scope_mismatch>0 || source_validation.stale_revision>0 || source_validation.stale_geometry>0 || source_validation.identity_collision>0 {
+    if source_validation.missing_source>0 || source_validation.stale_geometry>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
-            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry, {} trùng định danh nguồn.",
-            source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry,source_validation.identity_collision
+            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} đối tượng đã thay đổi hình học.",
+            source_validation.missing_source,source_validation.stale_geometry
         ));
         if source_validation.missing_source>0 && ui.button("Tự relink nguồn bị mất (chỉ khi khớp duy nhất)").clicked() {
             let relinked=state.relink_all_missing_sources(app);
@@ -1142,7 +1139,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let mut action: Option<(u64, u8)> = None;
         egui::ScrollArea::horizontal().show(ui, |ui| {
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
-                for h in ["ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
+                for h in ["ID","Handle nguồn","Nguồn","Loại","Lớp","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
                     let value = match record.kind {
@@ -1159,10 +1156,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                         "OK" => { ui.label("Đồng bộ"); }
                         state => { ui.label(state); }
                     }
-                    ui.label(record.scope.floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
-                    ui.label(record.scope.discipline.as_deref().unwrap_or("-"));
-                    ui.label(record.scope.owner_account_id.as_deref().unwrap_or("-"));
-                    ui.label(match record.kind { MeasureKind::Length=>"Chiều dài", MeasureKind::Area=>"Diện tích", MeasureKind::Perimeter=>"Chu vi", MeasureKind::Count=>"Đếm" });
+                     ui.label(match record.kind { MeasureKind::Length=>"Chiều dài", MeasureKind::Area=>"Diện tích", MeasureKind::Perimeter=>"Chu vi", MeasureKind::Count=>"Đếm" });
                     ui.label(&record.layer);
                     ui.label(&record.work_group);
                     ui.label(&record.work_code);
@@ -1222,35 +1216,6 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             });
         });
     }
-
-    ui.separator();
-    ui.strong("Tổng hợp theo phạm vi CAD");
-    if !source_validation.invalid_record_ids.is_empty() {
-        ui.colored_label(egui::Color32::YELLOW,format!("{} record liên kết nguồn không hợp lệ đang bị loại khỏi khối lượng đã xác nhận.",source_validation.invalid_record_ids.len()));
-    }
-    
-    let scoped_groups=scoped_business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);
-    egui::ScrollArea::horizontal().show(ui,|ui|{
-        egui::Grid::new("native_qto_cad_scope_summary").striped(true).show(ui,|ui|{
-            for h in ["Tầng","Bộ môn","Owner","Nhóm","Mã CT","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
-            ui.end_row();
-            for ((floor_id,discipline,owner,work_group,work_code),q) in &scoped_groups {
-                ui.label(floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
-                ui.label(discipline);
-                ui.label(owner);
-                ui.label(work_group);
-                ui.label(work_code);
-                ui.label(q.review_records.to_string());
-                ui.label(q.confirmed_records.to_string());
-                ui.label(q.excluded_records.to_string());
-                ui.label(format!("{:.3} {}",q.length,length_unit));
-                ui.label(format!("{:.3} {}",q.perimeter,length_unit));
-                ui.label(format!("{:.3} {}",q.area,area_unit));
-                ui.label(format!("{:.3}",q.count));
-                ui.end_row();
-            }
-        });
-    });
 
     ui.separator();
     ui.strong("Tổng hợp nghiệp vụ đã xác nhận");
@@ -1803,10 +1768,7 @@ mod tests {
     fn source_validation_default_has_no_false_errors() {
         let validation=SourceValidation::default();
         assert_eq!(validation.missing_source,0);
-        assert_eq!(validation.scope_mismatch,0);
-        assert_eq!(validation.stale_revision,0);
         assert_eq!(validation.stale_geometry,0);
-        assert_eq!(validation.identity_collision,0);
         assert_eq!(validation.valid_links,0);
     }
 

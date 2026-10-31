@@ -411,6 +411,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             let mut app = CadApp::new(Session::empty(), services());
+            // CAD360 Việt Nam starts in Vietnamese on a clean profile. Restored workspace or
+            // saved preferences below still win, so users can explicitly choose another language.
+            app.ui.interface_language = cadcraft_ui_egui::i18n::Preference::Vietnamese;
             let (workspace, restored, workspace_error) = workspace::Workspace::load();
             if let Some(ui) = restored {
                 app.ui = ui;

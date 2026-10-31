@@ -2623,7 +2623,7 @@ mod r18_tests {
 
     #[test]
     fn facet_dedup_reports_then_deletes_duplicate_faces() {
-        let mut s=Session::new(); s.new_doc();
+        let mut s=Session::new(); 
         let a=run_3dface(&mut s,&json!({"points":[[0,0,0],[1,0,0],[0,1,0]]})).unwrap();
         let b=run_3dface(&mut s,&json!({"points":[[1,0,0],[0,1,0],[0,0,0]]})).unwrap();
         let ha=a["handle"].as_str().unwrap(); let hb=b["handle"].as_str().unwrap();

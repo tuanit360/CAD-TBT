@@ -11,7 +11,7 @@ on:
         type: number
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: cad360-backup-${{ github.sha }}
@@ -56,6 +56,31 @@ jobs:
           path: backups/*
           if-no-files-found: error
           retention-days: 90
+
+  permanent-checkpoint:
+    name: Publish versioned source ZIP in GitHub Releases
+    needs: source-backup
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CAD360_R67_Source_Revision_${{ needs.source-backup.outputs.number }}
+          path: checkpoint
+      - name: Keep versioned source ZIP without artifact expiry
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          NUMBER: ${{ needs.source-backup.outputs.number }}
+        run: |
+          tag="cad360-r67-v${NUMBER}"
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Version $tag already exists; no overwrite allowed"
+            exit 1
+          fi
+          gh release create "$tag" checkpoint/* --repo "$REPO" --target "$COMMIT" --title "CAD360 R67 checkpoint $NUMBER" --notes "R67 CAD 2D core source backup from commit $COMMIT. Windows installer is a separate artifact on versions divisible by five." --prerelease
 
   setup-every-five:
     name: Every fifth revision Windows Setup EXE

@@ -208,3 +208,66 @@
 	Clear Command History	Xóa lịch sử lệnh
 	Hide Palettes	Ẩn bảng công cụ
 	Reset Palettes	Đặt lại bảng công cụ
+	Modeling	Mô hình
+	Drafting	Vẽ kỹ thuật
+	Quick Start	Bắt đầu nhanh
+	3D Quick Start	Công cụ 3D nhanh
+	3D Foundation	Nền tảng 3D
+	Primitives	Hình học cơ bản
+	2D Region Boolean	Phép toán vùng 2D
+	Section & View	Mặt cắt và khung nhìn
+	Reality / Points	Dữ liệu điểm
+	3D Annotation	Ghi chú 3D
+	3D Inspect & Repair	Kiểm tra và sửa lỗi 3D
+	Command	Lệnh
+	Type a command	Nhập lệnh
+	WCS	Hệ tọa độ thế giới
+	Object Snap	Bắt điểm đối tượng
+	Quick Properties	Thuộc tính nhanh
+	Selection	Lựa chọn
+	Select objects	Chọn đối tượng
+	Select object	Chọn đối tượng
+	Workspace	Không gian làm việc
+	Model Space	Không gian mô hình
+	Paper Space	Không gian giấy
+	Layout	Trang in
+	Layout1	Trang in 1
+	Layout2	Trang in 2
+	Create	Tạo mới
+	Insert Block	Chèn khối
+	Annotate	Ghi chú
+	Utilities	Tiện ích
+	Advanced	Nâng cao
+	3D Modeling	Mô hình 3D
+	2D Drafting	Vẽ kỹ thuật 2D
+	Orbit	Xoay góc nhìn
+	Measure Distance	Đo khoảng cách
+	Measure Area	Đo diện tích
+	Measure Angle	Đo góc
+	Count Objects	Đếm đối tượng
+	Calculate	Tính toán
+	Dock	Gắn bảng
+	Undock	Tách bảng
+	Show	Hiện
+	Hide	Ẩn
+	Show All	Hiện tất cả
+	Hide All	Ẩn tất cả
+	Reset	Đặt lại
+	Search	Tìm kiếm
+	Filter	Lọc
+	Clear Filter	Xóa bộ lọc
+	Choose	Chọn
+	Deselect All	Bỏ chọn tất cả
+	New Layer	Lớp mới
+	Layer Manager	Quản lý lớp
+	Current Layer	Lớp hiện hành
+	Object Properties	Thuộc tính đối tượng
+	Export Selection	Xuất đối tượng đã chọn
+	Length	Chiều dài
+	Perimeter	Chu vi
+	Volume	Thể tích
+	Quantity	Khối lượng
+	Takeoff from CAD	Đo bóc trực tiếp trên CAD
+	Settings	Cài đặt
+	New	Mới
+	Save As	Lưu thành

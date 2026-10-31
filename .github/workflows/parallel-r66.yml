@@ -18,7 +18,7 @@ on:
 
 concurrency:
   group: cad360-r67-unified-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   lane-1-core:
@@ -196,6 +196,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
           if (!(Test-Path "dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE was not generated" }
           Get-FileHash "dist/CAD360_VietNam_TBT_Setup.exe" -Algorithm SHA256
+      - name: Smoke test Windows installer and uninstall
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = (Resolve-Path "dist/CAD360_VietNam_TBT_Setup.exe").Path
+          $install = Join-Path $env:RUNNER_TEMP "CAD360_R67_Smoke"
+          $p = Start-Process -FilePath $setup -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$install") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Install failed: $($p.ExitCode)" }
+          $app = Join-Path $install "cadcraft.exe"
+          $uninstaller = Join-Path $install "unins000.exe"
+          if (!(Test-Path $app) -or !(Test-Path $uninstaller)) { throw "Installed EXE/uninstaller missing" }
+          $gui = Start-Process -FilePath $app -PassThru
+          Start-Sleep -Seconds 7
+          $gui.Refresh()
+          if ($gui.HasExited) { throw "GUI quit immediately with code $($gui.ExitCode)" }
+          Stop-Process -Id $gui.Id -Force
+          $p = Start-Process -FilePath $uninstaller -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Uninstall failed: $($p.ExitCode)" }
+          if (Test-Path $app) { throw "Executable remained after uninstall" }
+          Write-Host "R67 install, GUI launch and uninstall smoke passed"
       - uses: actions/upload-artifact@v4
         with:
           name: CAD360_R67_Windows_Setup_EXE

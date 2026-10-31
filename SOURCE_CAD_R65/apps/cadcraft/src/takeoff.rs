@@ -157,11 +157,11 @@ impl State {
     }
 
     fn add_measurement_scoped(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String, scope: &Scope) -> Result<u64, String> {
-        if scope.floor_id == Some(0) { return Err("BIM scope floor_id không hợp lệ".into()); }
-        if scope.owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("BIM scope owner trống".into()); }
+        if scope.floor_id == Some(0) { return Err("Phạm vi đo bóc floor_id không hợp lệ".into()); }
+        if scope.owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("Phạm vi đo bóc owner trống".into()); }
         let mut normalized_scope=scope.clone();
         if let Some(value)=scope.discipline.as_deref() {
-            normalized_scope.discipline=Some(normalize_discipline(value).ok_or_else(||"BIM scope discipline không hợp lệ".to_string())?);
+            normalized_scope.discipline=Some(normalize_discipline(value).ok_or_else(||"Phạm vi đo bóc discipline không hợp lệ".to_string())?);
         }
         let id=self.add_measurement(kind,points,raw_value,layer)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {

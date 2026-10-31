@@ -1095,7 +1095,12 @@ fn record(map: &Map, r: &Rec, b: &[Tag], x: Option<&ForeignExtra>, unknown: bool
             xdata(map, x, &own_apps, out);
         }
         let mut t = t.clone();
-        if unknown && i < xdata_at && is_pointer(t.code) && t.code != 102 {
+        if i >= xdata_at && is_pointer(t.code) {
+            // Modeled entities now carry arbitrary application XDATA directly in Common::xdata.
+            // Remap 1005 (and any other pointer-like XDATA group) just like kept foreign XDATA;
+            // otherwise the foreign target is renumbered while the entity keeps a stale handle.
+            t = Tag::s(t.code, map.get(&t.str()).unwrap_or_else(|| "0".into()));
+        } else if unknown && i < xdata_at && is_pointer(t.code) && t.code != 102 {
             if t.code == 330 && !seen_owner {
                 seen_owner = true;
             } else {

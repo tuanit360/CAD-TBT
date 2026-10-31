@@ -891,6 +891,14 @@ pub(crate) fn finish(tags: &mut Vec<Tag>, d: &Drawing) {
         .filter_map(|o| Some((o.handle.hex(), head(&o.tags.iter().take_while(|t| t.code < 1000).map(tag).collect::<Vec<_>>()).owner?)))
         .collect();
     let mut alive_memo: HashMap<String, bool> = HashMap::new();
+    // Root entries already validated by the reader are authoritative reachability roots.
+    // Seed them as live unless the writer already owns the same NOD key; descendants then
+    // inherit liveness through their owner chain (e.g. ACME_OBJECT 42 -> dictionary 41).
+    for (key, handle) in &f.dictionary {
+        if !root_keys.contains(&up(key)) {
+            alive_memo.insert(handle.hex(), true);
+        }
+    }
     for o in f.objects.iter().filter(|o| is_proxy(&o.kind) && renumber(class_number(o.tags.iter().map(|r| (r.code, r.value.as_str())))).is_none()) {
         alive_memo.insert(o.handle.hex(), false);
     }

@@ -31,6 +31,7 @@ pub(super) fn hatch_reactors(d: &Drawing) -> HashMap<Handle, Vec<String>> {
 }
 
 pub(super) fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx) {
+    let record_start = w.t.len();
     match &e.kind {
         EntityKind::Line(l) => {
             w.s(0, "LINE");
@@ -642,15 +643,14 @@ pub(super) fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: boo
         // Writing them here as well duplicates the record and leaves stale raw pointers.
         EntityKind::Unknown(_) => {}
     }
-    // Preserve arbitrary application XDATA carried by modeled CAD entities. The reader already
-    // filters CADCraft-owned payloads into their native model fields, so common.xdata contains
-    // foreign/user metadata that must survive Save/Open and system clipboard DXF round-trips.
-    if !matches!(e.kind, EntityKind::Unknown(_)) {
-        for raw in &e.common.xdata {
-            if raw.code >= 1000 {
-                w.t.push(crate::dxf_raw::tag(raw));
-            }
-        }
+    // Preserve arbitrary application XDATA carried by modeled CAD entities. Some modeled
+    // entities emit multiple DXF records (POLYLINE/VERTEX/SEQEND, region fallbacks, etc.), so
+    // insert the XDATA before the second group-0 record: it belongs to the primary entity,
+    // never to a trailing VERTEX/SEQEND record.
+    if !matches!(e.kind, EntityKind::Unknown(_)) && !e.common.xdata.is_empty() {
+        let insert_at = w.t.iter().enumerate().skip(record_start + 1).find(|(_, tag)| tag.code == 0).map(|(i, _)| i).unwrap_or(w.t.len());
+        let tags = e.common.xdata.iter().filter(|raw| raw.code >= 1000).map(crate::dxf_raw::tag).collect::<Vec<_>>();
+        w.t.splice(insert_at..insert_at, tags);
     }
 }
 

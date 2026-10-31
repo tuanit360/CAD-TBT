@@ -1858,10 +1858,30 @@ mod tests {
     }
 
     #[test]
-    fn count_measurements_stay_one_record_per_selected_entity_for_individual_scope() {
-        let pending=PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:"DEVICE".into(),source_handle:cadcraft_doc::Handle(1)};
-        assert_eq!(pending.raw_value,1.0);
-        assert_eq!(pending.source_handle,cadcraft_doc::Handle(1));
+    fn selected_cad_line_produces_live_length_and_count_measurements() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let handle=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{
+                a:cadcraft_geom::Vec3::new(0.0,0.0,0.0),
+                b:cadcraft_geom::Vec3::new(3.0,4.0,0.0),
+            }),
+        ).unwrap();
+        app.session.set_selection(vec![handle]);
+
+        let measured=selected_measurements(&app);
+        assert_eq!(measured.len(),1);
+        assert_eq!(measured[0].kind,MeasureKind::Length);
+        assert!((measured[0].raw_value-5.0).abs()<1e-12);
+        assert_eq!(measured[0].layer,"A-WALL");
+        assert_eq!(measured[0].source_handle,handle);
+
+        let counted=selected_count_measurements(&app);
+        assert_eq!(counted.len(),1);
+        assert_eq!(counted[0].kind,MeasureKind::Count);
+        assert_eq!(counted[0].raw_value,1.0);
+        assert_eq!(counted[0].source_handle,handle);
     }
 
     #[test]

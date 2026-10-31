@@ -73,7 +73,7 @@ fn wblock_insert_real_file_preserves_bim_member_identity_and_explode_scope() {
 
     source.execute("wblock",&json!({"path":path.to_string_lossy(),"handles":[line_handle.hex()],"base":[0,0]})).unwrap();
     let written=cadcraft_io::read(&std::fs::read(&path).unwrap(),&path.to_string_lossy()).unwrap();
-    let written_member=written.model.first().unwrap();
+    let written_member=written.model.iter().next().unwrap();
     let at=written_member.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
     let payload=&written_member.common.xdata[at+1].value;
     assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=1"));
@@ -86,7 +86,7 @@ fn wblock_insert_real_file_preserves_bim_member_identity_and_explode_scope() {
     let insert_entity=target.doc().unwrap().entity(insert_handle).unwrap();
     let EntityKind::Insert(ins)=&insert_entity.kind else{panic!("expected insert")};
     let block=target.doc().unwrap().block(&ins.block).unwrap();
-    let member=block.entities.first().unwrap();
+    let member=block.entities.iter().next().unwrap();
     let at=member.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
     let payload=&member.common.xdata[at+1].value;
     assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=1"));

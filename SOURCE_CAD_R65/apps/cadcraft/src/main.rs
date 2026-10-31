@@ -168,39 +168,37 @@ impl eframe::App for App {
         });
         if let Some(cmd) = cad_command { self.cad.start(cmd); }
         if self.active_tab == MainTab::Takeoff {
-            egui::SidePanel::right("r67_cad_qto_tools")
-                .resizable(true)
-                .default_width(420.0)
-                .min_width(320.0)
-                .max_width(720.0)
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading("Đo bóc từ đối tượng CAD");
-                        if ui.small_button("Đóng").clicked() { self.active_tab = MainTab::Cad; }
-                    });
-                    ui.separator();
-                    let selected = self.cad.session.selection();
-                    ui.label(egui::RichText::new(format!("Đang chọn {} đối tượng trên bản vẽ", selected.len())).strong());
-                    if let Ok(drawing) = self.cad.session.doc() {
-                        for handle in selected.iter().take(8) {
-                            if let Some(entity) = drawing.entity(*handle) {
-                                ui.label(format!("{} · Lớp {}", handle.hex(), entity.common.layer));
-                            }
-                        }
-                        if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }
-                    }
-                    ui.separator();
-                    let qto_scope = takeoff::Scope {
-                        floor_id: Some(self.bim_collab_state.active_floor_id),
-                        discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
-                        owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
-                    };
-                    egui::ScrollArea::vertical().id_salt("r67_qto_scroll").show(ui, |ui| {
-                        takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
-                    });
+            ui.columns(2, |columns| {
+                self.cad.ui(&mut columns[0]);
+                let ui = &mut columns[1];
+                ui.horizontal(|ui| {
+                    ui.heading("Đo bóc từ đối tượng CAD");
+                    if ui.small_button("Đóng").clicked() { self.active_tab = MainTab::Cad; }
                 });
+                ui.separator();
+                let selected = self.cad.session.selection();
+                ui.label(egui::RichText::new(format!("Đang chọn {} đối tượng trên bản vẽ", selected.len())).strong());
+                if let Ok(drawing) = self.cad.session.doc() {
+                    for handle in selected.iter().take(8) {
+                        if let Some(entity) = drawing.entity(*handle) {
+                            ui.label(format!("{} · Lớp {}", handle.hex(), entity.common.layer));
+                        }
+                    }
+                    if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }
+                }
+                ui.separator();
+                let qto_scope = takeoff::Scope {
+                    floor_id: Some(self.bim_collab_state.active_floor_id),
+                    discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
+                    owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
+                };
+                egui::ScrollArea::vertical().id_salt("r67_qto_scroll").show(ui, |ui| {
+                    takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
+                });
+            });
+        } else {
+            self.cad.ui(ui);
         }
-        self.cad.ui(ui);
         bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);

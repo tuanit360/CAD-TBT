@@ -1811,6 +1811,7 @@ mod shortcut_label_tests {
 
 #[cfg(test)]
 mod units_dialog_tests {
+    use super::MENUS;
     use cadcraft_engine::Session;
     use serde_json::json;
 

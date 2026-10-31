@@ -1831,4 +1831,13 @@ mod units_dialog_tests {
         let h = &app.session.doc().unwrap().header;
         assert_eq!((h.i64("LUNITS", 0), h.i64("LUPREC", 0), h.i64("INSUNITS", 0)), (4, 3, 4));
     }
+    #[test]
+    fn r67_top_menu_is_cad_2d_focused() {
+        assert!(MENUS.contains(&"Draw"));
+        assert!(MENUS.contains(&"Modify"));
+        assert!(MENUS.contains(&"Dimension"));
+        assert!(!MENUS.contains(&"3D"));
+        assert!(!MENUS.contains(&"Showcase"));
+    }
+
 }

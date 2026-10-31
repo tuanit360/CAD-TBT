@@ -1720,11 +1720,33 @@ mod tests {
     }
 
     #[test]
-    fn cad_only_source_still_uses_geometry_guard_without_bim_revision() {
-        let has_bim_scope=false;
-        let geometry_stale=true;
-        let invalid=!has_bim_scope && geometry_stale;
-        assert!(invalid);
+    fn cad_qto_source_becomes_stale_after_move_and_valid_again_after_undo() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let handle=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{
+                a:cadcraft_geom::Vec3::new(0.0,0.0,0.0),
+                b:cadcraft_geom::Vec3::new(10.0,0.0,0.0),
+            }),
+        ).unwrap();
+        app.session.set_selection(vec![handle]);
+        let source=selected_measurements(&app).into_iter().next().unwrap();
+        let mut state=State::default();
+        let id=state.add_measurement_from_entity(source,&Scope::default(),None).unwrap();
+
+        let initial=validate_sources(&app,&state);
+        assert!(!initial.invalid_record_ids.contains(&id));
+
+        app.session.execute("move",&serde_json::json!({"handles":[handle.hex()],"delta":[5,0]})).unwrap();
+        let moved=validate_sources(&app,&state);
+        assert!(moved.invalid_record_ids.contains(&id));
+        assert!(moved.stale_geometry>0);
+
+        app.session.execute("undo",&serde_json::json!({})).unwrap();
+        let undone=validate_sources(&app,&state);
+        assert!(!undone.invalid_record_ids.contains(&id));
+        assert_eq!(undone.stale_geometry,0);
     }
 
     #[test]

@@ -136,7 +136,6 @@ fn vp(center: Vec2, w: f64, h: f64, view_center: Vec2, view_height: f64, id: u32
         frozen_layers: Vec::new(),
         layer_colors: Vec::new(),
         clip: None,
-        poly_clips: Vec::new(),
         on: true,
     }
 }

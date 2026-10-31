@@ -1621,7 +1621,7 @@ fn run_facettransform3d(s: &mut Session, p: &Value) -> Result<Value> {
     let mode = p.get("mode").and_then(Value::as_str).unwrap_or("").trim().to_ascii_lowercase();
     let default_origin = facet_selection_center(s, &handles)?;
     let origin = p.get("origin").map(|_| vec3_required(p, "origin", "facettransform3d")).transpose()?.unwrap_or(default_origin);
-    let mut transform: Box<dyn Fn(Vec3) -> Vec3> = match mode.as_str() {
+    let transform: Box<dyn Fn(Vec3) -> Vec3> = match mode.as_str() {
         "move" => {
             let d = vec3_required(p, "delta", "facettransform3d")?;
             Box::new(move |q| q + d)

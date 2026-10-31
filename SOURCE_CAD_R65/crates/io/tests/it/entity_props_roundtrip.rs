@@ -61,6 +61,37 @@ fn thickness_roundtrips_on_every_entity_that_has_one() {
     assert_eq!(get(&r, thin).common.thickness, 0.0);
 }
 
+
+#[test]
+fn arbitrary_entity_xdata_roundtrips_with_layer_and_geometry() {
+    let mut d = Drawing::new_metric();
+    let common = Common {
+        layer: "A-WALL".into(),
+        xdata: vec![
+            RawTag { code: 1001, value: "TBT360_CAD".into() },
+            RawTag { code: 1000, value: "work_code=BTCT;note=wall-axis".into() },
+            RawTag { code: 1040, value: "12.5".into() },
+            RawTag { code: 1070, value: "7".into() },
+        ],
+        ..Common::default()
+    };
+    let h = d.add(&Space::Model, common, EntityKind::Line(Line { a: Vec3::new(0.0,0.0,0.0), b: Vec3::new(10.0,0.0,0.0) })).unwrap();
+
+    let text = write_dxf(&d);
+    assert!(text.contains("TBT360_CAD"));
+    let r = read_dxf(text.as_bytes()).expect("reopen");
+    let e = get(&r,h);
+    assert_eq!(e.common.layer,"A-WALL");
+    assert_eq!(e.common.xdata,vec![
+        RawTag { code: 1001, value: "TBT360_CAD".into() },
+        RawTag { code: 1000, value: "work_code=BTCT;note=wall-axis".into() },
+        RawTag { code: 1040, value: "12.5".into() },
+        RawTag { code: 1070, value: "7".into() },
+    ]);
+    let EntityKind::Line(line)=&e.kind else { panic!("expected LINE") };
+    assert!((line.b.x-line.a.x-10.0).abs()<1e-12);
+}
+
 #[test]
 fn point_angle_roundtrips() {
     let mut d = Drawing::new_metric();

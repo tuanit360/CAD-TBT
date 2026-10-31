@@ -1186,7 +1186,9 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     ui.label(record.id.to_string());
                     ui.label(record.source_handle.as_deref().unwrap_or("-"));
                     match record_source_state(record,&source_validation) {
-                        "STALE" => { ui.colored_label(egui::Color32::YELLOW,"STALE"); }
+                        "STALE" => { ui.colored_label(egui::Color32::YELLOW,"Cần cập nhật"); }
+                        "Legacy" => { ui.label("Dữ liệu cũ"); }
+                        "OK" => { ui.label("Đồng bộ"); }
                         state => { ui.label(state); }
                     }
                     ui.label(record.scope.floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));

@@ -84,7 +84,7 @@ jobs:
           Write-Host "R67 CAD-first user workflow passed"
 
   lane-4-qto-bim:
-    name: "4 - QTO and BIM"
+    name: "4 - CAD QTO and object tools"
     runs-on: windows-latest
     defaults:
       run:
@@ -96,8 +96,9 @@ jobs:
         with:
           workspaces: SOURCE_CAD_R65
       - run: cargo test --locked -p cadcraft takeoff::tests -- --nocapture
-      - run: cargo test --locked -p cadcraft bim_ -- --nocapture
-      - run: cargo test --locked -p cadcraft-engine bim_ -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine properties -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine layer -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine select -- --nocapture
 
   lane-5-regression:
     name: "5 - Engine regression"
